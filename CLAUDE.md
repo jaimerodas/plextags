@@ -11,15 +11,24 @@ frontend, plus `plex_genres.py`, the stdlib-only CLI it grew out of.
 
 ## Running
 
-Two processes; the frontend is **not** served by the backend.
+```bash
+bin/dev              # both servers; --api or --web for just one
+```
+
+`bin/dev` installs missing deps, runs both servers in their own process groups
+with tagged output, and cleans both up on Ctrl-C. It is bash 3.2 compatible (the
+macOS system bash) — no `wait -n`, no associative arrays. It relies on `set -m`
+so that `kill -- -$pid` reaps each server's whole child tree; don't remove that.
+
+Equivalent by hand — the frontend is **not** served by the backend:
 
 ```bash
 uv run uvicorn server.main:app --port 8998   # backend
 npm run dev --prefix web                      # frontend -> http://localhost:5173
 ```
 
-Port 8998 is not optional — `web/vite.config.ts` proxies `/api` there, and
-`.claude/launch.json` defines both processes with these exact commands.
+Port 8998 is not optional — `web/vite.config.ts` proxies `/api` there, and both
+`bin/dev` and `.claude/launch.json` hardcode it.
 
 Python deps come from `pyproject.toml` via `uv` (`package = false`; there is no
 installable package, just the `server/` module run in place). `plex_genres.py`

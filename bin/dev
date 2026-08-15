@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+#
+# bin/dev — start PlexTags for local development.
+#
+# Installs anything missing, then runs the FastAPI backend and the Vite dev
+# server together with tagged, interleaved output. Ctrl-C stops both.
+#
+#   bin/dev              start both
+#   bin/dev --api        backend only
+#   bin/dev --web        frontend only (needs the backend for /api to work)
+#
+# Written for bash 3.2 (the macOS system bash), so no `wait -n`.
+
+set -uo pipefail
+
+cd "$(dirname "$0")/.."
+
+API_PORT=8998   # must match the /api proxy target in web/vite.config.ts
+WEB_PORT=5173
+
+if [ -t 1 ]; then
+  BOLD=$'\033[1m'; DIM=$'\033[2m'; RESET=$'\033[0m'
+  RED=$'\033[31m'; GREEN=$'\033[32m'; BLUE=$'\033[34m'; MAGENTA=$'\033[35m'
+else
+  BOLD=; DIM=; RESET=; RED=; GREEN=; BLUE=; MAGENTA=
+fi
+
+say()  { printf '%s==>%s %s\n' "$BOLD" "$RESET" "$*"; }
+warn() { printf '%s==>%s %s\n' "$RED" "$RESET" "$*" >&2; }
+die()  { warn "$*"; exit 1; }
+
+run_api=1
+run_web=1
+for arg in "$@"; do
+  case "$arg" in
+    --api|--backend)  run_web=0 ;;
+    --web|--frontend) run_api=0 ;;
+    -h|--help) sed -n '3,12p' "$0" | cut -c3-; exit 0 ;;
+    *) die "unknown option: $arg (try --help)" ;;
+  esac
+done
+
+# ---------------------------------------------------------------- preflight
+
+port_pid() { lsof -ti "tcp:$1" -sTCP:LISTEN 2>/dev/null | head -1; }
+
+check_port() {
+  local port=$1 label=$2 pid
+  pid=$(port_pid "$port")
+  [ -n "$pid" ] || return 0
+  die "port $port ($label) is already in use by pid $pid ($(ps -p "$pid" -o comm= 2>/dev/null)).
+    Stop it first, or run:  kill $pid"
+}
+
+if [ "$run_api" = 1 ]; then
+  command -v uv >/dev/null || die "uv not found. Install it: brew install uv"
+  check_port "$API_PORT" backend
+fi
+
+if [ "$run_web" = 1 ]; then
+  command -v npm >/dev/null || die "npm not found. Install node: brew install node"
+  check_port "$WEB_PORT" frontend
+  # Reinstall when the lockfile is newer than the install marker.
+  if [ ! -d web/node_modules ] || [ web/package-lock.json -nt web/node_modules ]; then
+    say "installing web dependencies…"
+    npm install --prefix web || die "npm install failed"
+    touch web/node_modules
+  fi
+fi
+
+if [ "$run_api" = 1 ]; then
+  # `uv run` resolves and installs from pyproject.toml on demand; do it up front
+  # so dependency output doesn't scroll past mixed in with server logs.
+  say "syncing python dependencies…"
+  uv sync --quiet || die "uv sync failed"
+fi
+
+# ------------------------------------------------------------------- launch
+
+# Job control puts each background job in its own process group, so a single
+# `kill -- -$pid` takes down the server and its children (uvicorn reloader,
+# vite's esbuild, the tagging subshell) together.
+set -m
+
+pids=""
+
+start() {
+  local tag=$1 color=$2; shift 2
+  (
+    "$@" 2>&1 | while IFS= read -r line; do
+      printf '%s%-4s%s %s\n' "$color" "$tag" "$RESET" "$line"
+    done
+  ) &
+  pids="$pids $!"
+}
+
+shutdown() {
+  # Clearing the traps first keeps the EXIT trap from re-entering this.
+  trap - INT TERM EXIT
+  local pid
+  for pid in $pids; do
+    kill -TERM -- "-$pid" 2>/dev/null
+  done
+  wait 2>/dev/null
+  printf '\n%s==>%s stopped\n' "$BOLD" "$RESET"
+}
+# Ctrl-C is a normal way to stop, so it exits 0; the EXIT trap covers every
+# other path (a server dying on its own, which exits 1 from the loop below).
+trap 'shutdown; exit 0' INT TERM
+trap shutdown EXIT
+
+[ "$run_api" = 1 ] && start api "$BLUE" \
+  uv run uvicorn server.main:app --port "$API_PORT" --reload
+[ "$run_web" = 1 ] && start web "$MAGENTA" \
+  npm run dev --prefix web -- --port "$WEB_PORT" --strictPort
+
+# Wait for the port that actually serves the UI, then print where to go.
+banner_port=$WEB_PORT
+[ "$run_web" = 1 ] || banner_port=$API_PORT
+for _ in $(seq 1 100); do
+  [ -n "$(port_pid "$banner_port")" ] && break
+  sleep 0.2
+done
+
+printf '\n'
+if [ "$run_web" = 1 ]; then
+  say "${GREEN}PlexTags is up:${RESET} ${BOLD}http://localhost:$WEB_PORT${RESET}"
+  [ "$run_api" = 1 ] && printf '    %sopen the 5173 URL, not the API port — vite proxies /api to %s%s\n' \
+    "$DIM" "$API_PORT" "$RESET"
+else
+  say "${GREEN}API is up:${RESET} ${BOLD}http://localhost:$API_PORT/docs${RESET}"
+fi
+printf '    %sCtrl-C to stop%s\n\n' "$DIM" "$RESET"
+
+# bash 3.2 has no `wait -n`, so poll: if either job exits, tear the rest down.
+while :; do
+  for pid in $pids; do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      warn "a process exited — shutting down"
+      exit 1
+    fi
+  done
+  sleep 1
+done

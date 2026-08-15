@@ -22,23 +22,33 @@ agents won't silently overwrite your correction on the next metadata refresh.
 
 ## Running it
 
-Two processes: the FastAPI backend on port **8998** and the Vite dev server on
-port **5173**. The Vite dev server proxies `/api` to the backend, so **open
-http://localhost:5173** — not 8998. The backend does not serve the frontend.
-
 ```bash
-# terminal 1 — backend  (uv installs deps from pyproject.toml on first run)
-uv run uvicorn server.main:app --port 8998
-
-# terminal 2 — frontend
-npm install --prefix web    # first time only
-npm run dev --prefix web
+bin/dev
 ```
 
-Then open http://localhost:5173.
+That's it. The script installs any missing Python and npm dependencies, starts
+both servers with tagged output, and prints the URL to open. Ctrl-C stops
+everything.
 
-`.claude/launch.json` defines both processes, so `/run` (or any tooling that reads
-launch.json) can start them for you.
+```
+bin/dev          both servers
+bin/dev --api    backend only
+bin/dev --web    frontend only
+```
+
+Requires `uv` and `npm` (`brew install uv node`).
+
+Under the hood it's two processes: the FastAPI backend on port **8998** and the
+Vite dev server on port **5173**. Vite proxies `/api` to the backend, so **open
+http://localhost:5173** — not 8998. The backend does not serve the frontend.
+If you'd rather run them by hand:
+
+```bash
+uv run uvicorn server.main:app --port 8998   # terminal 1
+npm run dev --prefix web                      # terminal 2
+```
+
+`.claude/launch.json` defines the same two processes for tooling that reads it.
 
 ### First-time flow in the UI
 
@@ -99,6 +109,7 @@ library — kept as a worked example.
 ## What's in the repo
 
 ```
+bin/dev               dev launcher — installs deps, runs both servers
 plex_genres.py        standalone CLI (stdlib only) — the original tool
 corrections.json      example/applied correction batch for the CLI
 plex_movies.{csv,json}  CLI exports; the JSON also seeds the web app's cache
