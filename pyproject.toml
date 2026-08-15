@@ -1,0 +1,13 @@
+[project]
+name = "plextags"
+version = "0.1.0"
+description = "Local web app for editing Plex genre tags as TV channels"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "requests>=2.32",
+]
+
+[tool.uv]
+package = false
