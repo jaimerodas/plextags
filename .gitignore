@@ -3,5 +3,7 @@ __pycache__/
 node_modules/
 web/dist/
 web/tsconfig.tsbuildinfo
+study/data/
+study/out/
 data/
 .DS_Store

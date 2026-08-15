@@ -11,6 +11,7 @@ Ports the logic of plex_genres.py (see repo root) with two important quirks:
 from __future__ import annotations
 
 import concurrent.futures
+import time
 import urllib.parse
 from typing import Callable
 
@@ -109,6 +110,20 @@ def get_sections(server_url: str, client_id: str, token: str) -> list[dict]:
             for d in dirs if d.get("type") in KIND_TYPE]
 
 
+def _external_ids(meta: dict) -> dict[str, str]:
+    """{'imdb': 'tt0092345', 'tmdb': '4951', ...} from Plex's Guid[] list.
+
+    Items the metadata agent never matched have no Guid[] at all, which is the
+    cleanest signal that a title can't be joined to anything outside Plex.
+    """
+    ids = {}
+    for g in meta.get("Guid") or []:
+        scheme, _, value = (g.get("id") or "").partition("://")
+        if scheme and value:
+            ids[scheme] = value
+    return ids
+
+
 def fetch_items(server_url: str, client_id: str, token: str, section: str,
                 kind: str, progress: Callable[[int, int], None] | None = None,
                 workers: int = 8) -> list[dict]:
@@ -129,20 +144,40 @@ def fetch_items(server_url: str, client_id: str, token: str, section: str,
     def fetch_one(entry: dict) -> dict:
         rk = entry["ratingKey"]
         genres = [g["tag"] for g in entry.get("Genre", [])]
-        try:
-            rr = requests.get(f"{server_url}/library/metadata/{rk}",
-                              headers=headers, timeout=30, verify=False)
-            if rr.status_code == 200:
-                meta = rr.json().get("MediaContainer", {}).get("Metadata", [])
-                if meta:
-                    genres = [g["tag"] for g in meta[0].get("Genre", [])]
-        except requests.RequestException:
-            pass  # keep the truncated bulk genres rather than failing the run
+        ids: dict[str, str] = {}
+        locked = False
+        complete = False
+        # Retry before giving up: falling back to the bulk entry silently yields
+        # a TRUNCATED genre list and no ids, which looks like real data.
+        for attempt in range(3):
+            try:
+                rr = requests.get(f"{server_url}/library/metadata/{rk}",
+                                  headers=headers, timeout=30, verify=False)
+                if rr.status_code == 200:
+                    meta = rr.json().get("MediaContainer", {}).get("Metadata", [])
+                    if meta:
+                        genres = [g["tag"] for g in meta[0].get("Genre", [])]
+                        ids = _external_ids(meta[0])
+                        locked = any(f.get("name") == "genre" and f.get("locked")
+                                     for f in meta[0].get("Field", []))
+                        complete = True
+                    break
+            except requests.RequestException:
+                if attempt == 2:
+                    break  # keep the truncated bulk genres rather than fail
+                time.sleep(0.5 * (attempt + 1))
         return {
             "ratingKey": rk,
             "title": entry.get("title"),
             "year": entry.get("year"),
             "genres": genres,
+            # Both come free with the metadata call above. `ids` is what lets an
+            # item be joined to outside sources (see study/); `locked` marks a
+            # genre list a human already corrected. `complete` is False when the
+            # detail fetch failed, i.e. these genres may be the truncated ones.
+            "ids": ids,
+            "locked": locked,
+            "complete": complete,
         }
 
     items = []
