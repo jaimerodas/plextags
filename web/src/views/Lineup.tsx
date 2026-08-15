@@ -5,12 +5,21 @@ import type { Channel, ChannelEntry } from "../state/edits";
 interface Props {
   channels: Channel[];
   items: Item[];
+  /** ratingKey -> outstanding suggestion count, for the badge. */
+  suggestionCounts: Map<string, number>;
   onAdd: (item: Item, genre: string) => void;
   onRemove: (item: Item, genre: string) => void;
   onOpenTitle: (item: Item) => void;
 }
 
-export function Lineup({ channels, items, onAdd, onRemove, onOpenTitle }: Props) {
+export function Lineup({
+  channels,
+  items,
+  suggestionCounts,
+  onAdd,
+  onRemove,
+  onOpenTitle,
+}: Props) {
   return (
     <div className="lineup">
       {channels.map((ch) => (
@@ -18,6 +27,7 @@ export function Lineup({ channels, items, onAdd, onRemove, onOpenTitle }: Props)
           key={ch.genre}
           channel={ch}
           items={items}
+          suggestionCounts={suggestionCounts}
           onAdd={onAdd}
           onRemove={onRemove}
           onOpenTitle={onOpenTitle}
@@ -30,11 +40,12 @@ export function Lineup({ channels, items, onAdd, onRemove, onOpenTitle }: Props)
 function ChannelCard(props: {
   channel: Channel;
   items: Item[];
+  suggestionCounts: Map<string, number>;
   onAdd: (item: Item, genre: string) => void;
   onRemove: (item: Item, genre: string) => void;
   onOpenTitle: (item: Item) => void;
 }) {
-  const { channel, items, onAdd, onRemove, onOpenTitle } = props;
+  const { channel, items, suggestionCounts, onAdd, onRemove, onOpenTitle } = props;
   const [open, setOpen] = useState(true);
   const activeCount = channel.entries.filter((e) => e.status !== "removed").length;
 
@@ -52,6 +63,7 @@ function ChannelCard(props: {
               key={e.item.ratingKey}
               entry={e}
               genre={channel.genre}
+              suggestionCount={suggestionCounts.get(e.item.ratingKey) ?? 0}
               onAdd={onAdd}
               onRemove={onRemove}
               onOpenTitle={onOpenTitle}
@@ -72,11 +84,12 @@ function ChannelCard(props: {
 function EntryRow(props: {
   entry: ChannelEntry;
   genre: string;
+  suggestionCount: number;
   onAdd: (item: Item, genre: string) => void;
   onRemove: (item: Item, genre: string) => void;
   onOpenTitle: (item: Item) => void;
 }) {
-  const { entry, genre, onAdd, onRemove, onOpenTitle } = props;
+  const { entry, genre, suggestionCount, onAdd, onRemove, onOpenTitle } = props;
   const { item, status } = entry;
   return (
     <div className={`entry ${status}`}>
@@ -85,6 +98,15 @@ function EntryRow(props: {
       </button>
       {item.year && <span className="year">{item.year}</span>}
       {status === "added" && <span className="badge add">pending</span>}
+      {suggestionCount > 0 && (
+        <button
+          className="badge suggest"
+          title={`${suggestionCount} suggestion${suggestionCount === 1 ? "" : "s"} from Wikipedia`}
+          onClick={() => onOpenTitle(item)}
+        >
+          {suggestionCount}
+        </button>
+      )}
       {status === "removed" ? (
         <button className="action undo" onClick={() => onAdd(item, genre)}>
           undo

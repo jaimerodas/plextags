@@ -4,11 +4,14 @@ import {
   ApiError,
   ApplyResult,
   AuthStatus,
+  Dismissed,
+  EvidenceJob,
   Item,
   Kind,
   Library,
   RefreshJob,
   Section,
+  Suggestion,
 } from "./api";
 import {
   buildChannels,
@@ -19,9 +22,11 @@ import {
   queueRemove,
   toPayload,
 } from "./state/edits";
+import { countFor, visibleFor } from "./state/suggestions";
 import { ServerPicker, SignIn } from "./views/Auth";
 import { EditsTray } from "./views/EditsTray";
 import { Lineup } from "./views/Lineup";
+import { ReviewQueue } from "./views/ReviewQueue";
 import { TitleEditor } from "./views/TitleEditor";
 
 const OFFLINE_SECTIONS: Section[] = [
@@ -41,6 +46,13 @@ export default function App() {
   const [extraChannels, setExtraChannels] = useState<string[]>([]);
   const [selected, setSelected] = useState<Item | null>(null);
 
+  const [view, setView] = useState<"lineup" | "review">("lineup");
+  const [suggestions, setSuggestions] = useState<Record<string, Suggestion>>({});
+  const [dismissed, setDismissed] = useState<Dismissed>({});
+  const [evidenceCount, setEvidenceCount] = useState(0);
+  const [evJob, setEvJob] = useState<EvidenceJob | null>(null);
+  const evPollRef = useRef<number | undefined>(undefined);
+
   const [job, setJob] = useState<RefreshJob | null>(null);
   const [saving, setSaving] = useState(false);
   const [applyResults, setApplyResults] = useState<ApplyResult[] | null>(null);
@@ -56,10 +68,25 @@ export default function App() {
     }
   }, []);
 
+  const loadEvidence = useCallback(async () => {
+    try {
+      const e = await api.evidence();
+      setSuggestions(e.suggestions);
+      setDismissed(e.dismissed);
+      setEvidenceCount(e.count);
+    } catch {
+      /* evidence is optional — the app works fully without it */
+    }
+  }, []);
+
   useEffect(() => {
     loadStatus();
-    return () => window.clearInterval(pollRef.current);
-  }, [loadStatus]);
+    loadEvidence();
+    return () => {
+      window.clearInterval(pollRef.current);
+      window.clearInterval(evPollRef.current);
+    };
+  }, [loadStatus, loadEvidence]);
 
   const authed = status?.authenticated ?? false;
   const sections = offline ? OFFLINE_SECTIONS : status?.sections ?? null;
@@ -101,6 +128,45 @@ export default function App() {
     const j = await api.refreshStart(section.id, section.kind);
     setJob(j);
     pollJob(section, onDone);
+  }
+
+  async function startEvidenceRefresh() {
+    setBanner(null);
+    setEvJob(await api.evidenceRefreshStart());
+    window.clearInterval(evPollRef.current);
+    evPollRef.current = window.setInterval(async () => {
+      const j = await api.evidenceRefreshStatus();
+      setEvJob(j);
+      if (!j.running) {
+        window.clearInterval(evPollRef.current);
+        setEvJob(null);
+        if (j.error) setBanner(`Wikipedia lookup failed: ${j.error}`);
+        else {
+          await loadEvidence();
+          setBanner("Wikipedia data updated ✓");
+        }
+      }
+    }, 700);
+  }
+
+  async function onDismiss(
+    item: Item,
+    genre: string,
+    direction: "add" | "remove",
+  ) {
+    // Optimistic: the row should vanish on click, not after a round trip.
+    setDismissed((d) => {
+      const cur = d[item.ratingKey] ?? { add: [], remove: [] };
+      return {
+        ...d,
+        [item.ratingKey]: { ...cur, [direction]: [...cur[direction], genre] },
+      };
+    });
+    try {
+      setDismissed(await api.dismiss(item.ratingKey, genre, direction));
+    } catch (e) {
+      setBanner(`Could not save dismissal: ${e instanceof Error ? e.message : e}`);
+    }
   }
 
   function confirmDiscard(): boolean {
@@ -162,6 +228,22 @@ export default function App() {
     () => channels.map((c) => c.genre),
     [channels],
   );
+  const reviewCount = useMemo(
+    () =>
+      items.reduce(
+        (n, i) => n + countFor(i, suggestions[i.ratingKey], edits, dismissed),
+        0,
+      ),
+    [items, suggestions, edits, dismissed],
+  );
+  const suggestionCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const i of items) {
+      const n = countFor(i, suggestions[i.ratingKey], edits, dismissed);
+      if (n > 0) m.set(i.ratingKey, n);
+    }
+    return m;
+  }, [items, suggestions, edits, dismissed]);
 
   // ---------------------------------------------------------------- screens
 
@@ -206,10 +288,41 @@ export default function App() {
             </button>
           ))}
         </nav>
+        <nav className="kind-toggle">
+          <button
+            className={view === "lineup" ? "active" : ""}
+            onClick={() => setView("lineup")}
+          >
+            Lineup
+          </button>
+          <button
+            className={view === "review" ? "active" : ""}
+            onClick={() => setView("review")}
+          >
+            Review{reviewCount > 0 ? ` (${reviewCount})` : ""}
+          </button>
+        </nav>
         <div className="spacer" />
-        <button onClick={newChannel} disabled={!library}>
+        <button onClick={newChannel} disabled={!library || view !== "lineup"}>
           + New channel
         </button>
+        {evJob ? (
+          <span className="pulse refresh-progress">
+            {evJob.note ?? "Working"}… {evJob.total ? `${evJob.done}/${evJob.total}` : ""}
+          </span>
+        ) : (
+          <button
+            onClick={startEvidenceRefresh}
+            disabled={offline || saving || !library}
+            title={
+              evidenceCount
+                ? `Re-check Wikidata and Wikipedia (${evidenceCount} titles cached)`
+                : "Download genre data from Wikidata and Wikipedia"
+            }
+          >
+            ⟳ Wikipedia
+          </button>
+        )}
         {job ? (
           <span className="pulse refresh-progress">
             Downloading… {job.done}/{job.total || "?"}
@@ -267,12 +380,27 @@ export default function App() {
         <div className="centered muted">Loading library…</div>
       )}
 
-      {library && (
+      {library && view === "lineup" && (
         <Lineup
           channels={channels}
           items={items}
+          suggestionCounts={suggestionCounts}
           onAdd={onAdd}
           onRemove={onRemove}
+          onOpenTitle={setSelected}
+        />
+      )}
+
+      {library && view === "review" && (
+        <ReviewQueue
+          items={items}
+          suggestions={suggestions}
+          dismissed={dismissed}
+          edits={edits}
+          hasEvidence={evidenceCount > 0}
+          onAdd={onAdd}
+          onRemove={onRemove}
+          onDismiss={onDismiss}
           onOpenTitle={setSelected}
         />
       )}
@@ -282,8 +410,16 @@ export default function App() {
           item={selected}
           edits={edits}
           allGenres={allGenres}
+          suggestion={visibleFor(
+            selected,
+            suggestions[selected.ratingKey],
+            edits,
+            dismissed,
+          )}
+          hasEvidence={evidenceCount > 0}
           onAdd={onAdd}
           onRemove={onRemove}
+          onDismiss={onDismiss}
           onClose={() => setSelected(null)}
         />
       )}

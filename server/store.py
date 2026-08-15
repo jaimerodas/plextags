@@ -40,8 +40,49 @@ def save_config(cfg: dict) -> None:
     _save_json(CONFIG_PATH, cfg)
 
 
+EVIDENCE_PATH = DATA_DIR / "evidence.json"
+DISMISSED_PATH = DATA_DIR / "dismissed.json"
+
+
 def library_path(section_id: str) -> Path:
     return DATA_DIR / f"library_{section_id}.json"
+
+
+# ------------------------------------------------------------------ evidence
+
+def load_evidence() -> dict:
+    return _load_json(EVIDENCE_PATH) or {"fetchedAt": None, "items": {}}
+
+
+def save_evidence(data: dict) -> None:
+    _save_json(EVIDENCE_PATH, data)
+
+
+# ---------------------------------------------------------------- dismissals
+
+def load_dismissed() -> dict:
+    """{ratingKey: {"add": [...], "remove": [...]}} — suggestions turned down.
+
+    Without this every suggestion you disagree with comes back on every visit,
+    which turns the feature into nagging.
+    """
+    return _load_json(DISMISSED_PATH) or {}
+
+
+def dismiss(rating_key: str, genre: str, direction: str) -> dict:
+    data = load_dismissed()
+    entry = data.setdefault(rating_key, {"add": [], "remove": []})
+    if genre not in entry[direction]:
+        entry[direction].append(genre)
+    _save_json(DISMISSED_PATH, data)
+    return data
+
+
+def undismiss(rating_key: str) -> dict:
+    data = load_dismissed()
+    data.pop(rating_key, None)
+    _save_json(DISMISSED_PATH, data)
+    return data
 
 
 def load_library(section_id: str, kind: str | None = None) -> dict | None:

@@ -57,6 +57,38 @@ export interface ApplyResult {
   status: number | string;
 }
 
+/** What the outside sources imply for one title, already guard-filtered. */
+export interface Suggestion {
+  add: string[];
+  remove: string[];
+  /** Genres outside sources under-assert (Family, Adventure) — shown, never auto-suggested. */
+  removeSoft: string[];
+  /** Real genres with no Plex equivalent, e.g. "spy", "neo-noir". */
+  outside: string[];
+  /** The Wikipedia lead phrase, so a suggestion can be judged not just trusted. */
+  why: string | null;
+  article: string | null;
+  raw: string[];
+  hasEvidence: boolean;
+}
+
+export type Dismissed = Record<string, { add: string[]; remove: string[] }>;
+
+export interface EvidenceResponse {
+  fetchedAt: number | null;
+  count: number;
+  suggestions: Record<string, Suggestion>;
+  dismissed: Dismissed;
+}
+
+export interface EvidenceJob {
+  running: boolean;
+  done: number;
+  total: number;
+  error: string | null;
+  note: string | null;
+}
+
 export interface EditPayload {
   ratingKey: string;
   title: string;
@@ -105,6 +137,13 @@ export const api = {
     req<RefreshJob>(`/api/sections/${sectionId}/refresh`, post({ kind })),
   refreshStatus: (sectionId: string) =>
     req<RefreshJob>(`/api/sections/${sectionId}/refresh`),
+  evidence: () => req<EvidenceResponse>("/api/evidence"),
+  evidenceRefreshStart: () => req<EvidenceJob>("/api/evidence/refresh", post()),
+  evidenceRefreshStatus: () => req<EvidenceJob>("/api/evidence/refresh"),
+  dismiss: (ratingKey: string, genre: string, direction: "add" | "remove") =>
+    req<Dismissed>("/api/dismissals", post({ ratingKey, genre, direction })),
+  undismiss: (ratingKey: string) =>
+    req<Dismissed>(`/api/dismissals/${ratingKey}`, { method: "DELETE" }),
   apply: (sectionId: string, kind: Kind, edits: EditPayload[]) =>
     req<{ results: ApplyResult[]; ok: boolean }>(
       `/api/sections/${sectionId}/apply`,

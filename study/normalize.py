@@ -239,6 +239,70 @@ PLEX_MAP: dict[str, set[str]] = {
 }
 
 
+# ------------------------------------------------------------------- guards
+#
+# These three rules are the difference between a useful suggestion and a wrong
+# one. Each was earned by getting it wrong first; see study/README.md.
+
+# Genres whose ABSENCE outside Plex means nothing. Wikidata's P136 records
+# *narrative* genre, so it rarely asserts the audience/mode tags Plex leans on:
+# it calls Cars "buddy, comedy, flashback" and never "family film". Scoring that
+# silence as contradiction made Family and Adventure the two most-flagged genres
+# in the library — a bug in the method, not a finding about the library.
+SOFT_GENRES = {"Family", "Adventure"}
+
+# Pairs Plex distinguishes but the outside sources don't. Plex splits Music
+# (music is the subject) from Musical (characters sing); Wikidata has only
+# "musical film" for both, which made School of Rock and This Is Spinal Tap look
+# mistagged. If a genre's neighbour is supported, the genre isn't contradicted.
+ADJACENT = {
+    "Music": {"Musical"},
+    "Musical": {"Music"},
+    "Science": {"Science Fiction", "Documentary"},
+}
+
+
+def evaluate(plex: set[str], wd_plex: set[str], wp_plex: set[str],
+             sources: int, evidence: int) -> dict:
+    """Compare Plex's genres with the outside sources' and apply every guard.
+
+    The single place that decides what counts as a disagreement, shared by the
+    study (study/compare.py) and the live app (server/evidence.py) so the two
+    can never drift apart.
+
+    `sources` is how many of the two outside sources said anything at all;
+    `evidence` is how many distinct labels they produced between them.
+    """
+    union = wd_plex | wp_plex
+    supported = set(union)
+    for g in plex:
+        if ADJACENT.get(g, set()) & union:
+            supported.add(g)
+
+    # A title described only as "disaster film" is not evidence that Plex's
+    # Drama and Thriller are wrong — it's evidence nobody wrote much down.
+    well_evidenced = sources == 2 and evidence >= 2
+
+    extras = (plex - supported) if union else set()
+    confident = (extras - SOFT_GENRES) if well_evidenced else set()
+
+    # Never strip a title to nothing. Plex's lifestyle categories (Home and
+    # Garden, News, Food) have no Wikidata equivalent at all, so a title carrying
+    # only one of those can have its whole list "disproved".
+    if confident and not (plex - confident):
+        confident = set()
+
+    return {
+        "supported": sorted(supported),
+        "remove": sorted(confident),
+        "remove_soft": sorted(extras & SOFT_GENRES) if well_evidenced else [],
+        # Adding needs corroboration from BOTH sources; one source's
+        # idiosyncratic label is a weak basis for inventing a tag.
+        "add": sorted((wd_plex & wp_plex) - plex) if sources == 2 else [],
+        "wellEvidenced": well_evidenced,
+    }
+
+
 def to_plex(labels: list[str]) -> tuple[set[str], set[str]]:
     """(Plex-vocabulary genres implied, canonical labels with no Plex equivalent).
 

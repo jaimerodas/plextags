@@ -65,6 +65,23 @@ npm run dev --prefix web                      # terminal 2
    the changes to Plex and then automatically re-downloads the library so what you
    see matches what actually stuck.
 
+### Suggestions from Wikipedia
+
+Hit **⟳ Wikipedia** once (about 40 seconds for a few hundred titles) and PlexTags
+downloads what Wikidata and the English Wikipedia say about every title's genre.
+After that it's all local — no waiting when you open something.
+
+Each title then shows suggested additions and removals, with the Wikipedia lead
+sentence next to them so you can judge rather than trust. **Accept** queues the
+change into the normal edits tray; **Dismiss** hides that suggestion for good.
+The **Review** tab walks you through every title with outstanding suggestions.
+
+Suggestions are deliberately conservative. An addition needs both sources to
+agree. A removal needs both sources present, specific, and silent on the tag —
+and is never offered if it would leave a title with no genres at all, or for
+genres Wikidata simply doesn't record (it calls *Cars* "buddy, comedy,
+flashback" and never "family film", which doesn't make Family wrong).
+
 There's also a **Browse cached data without signing in** link, which loads the
 local cache read-only (useful for poking around offline).
 
@@ -118,6 +135,7 @@ plex_shows.{csv,json}   on first run, before you've hit Refresh
 server/               FastAPI backend
   main.py             HTTP routes; background refresh jobs
   plex.py             Plex API client (auth, discovery, fetch, edits)
+  evidence.py         Wikidata/Wikipedia genre evidence, batched and cached
   store.py            local JSON persistence in data/
 web/                  React + TypeScript + Vite frontend
   src/App.tsx         top-level state and screen routing

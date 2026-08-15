@@ -59,6 +59,13 @@ Browser (React) --/api--> FastAPI (server/) --HTTP--> Plex Media Server
   `kept` / `added` / `removed` statuses. Nothing is written to Plex until Save.
 - `web/src/App.tsx` — all screen routing and top-level state; the `views/` files
   are presentational.
+- `server/evidence.py` — genre evidence from Wikidata/Wikipedia, cached in
+  `data/evidence.json`. Fetching is **always batched across the whole library**:
+  per-item lookups cost ~1s and get rate-limited, batched costs ~10ms (Wikidata,
+  100 ids/query) and ~52ms (Wikipedia, 20 articles/request). A full pull is ~40s.
+- `study/normalize.py` — the shared judgement layer. `evaluate()` is the single
+  place that decides what counts as a disagreement, used by both the offline
+  study and the live app so they can't drift.
 
 ## Non-obvious constraints
 
@@ -74,6 +81,20 @@ Violating either of these produces silent, hard-to-spot data bugs.
    value per request; batching removals silently drops all but one. Additions can
    be batched as `genre[0].tag.tag`, `genre[1].tag.tag`, … Both codepaths encode
    this.
+
+3. **Store evidence, derive suggestions.** `data/evidence.json` holds what the
+   outside sources *say*, never "remove Crime from X". Suggestions are recomputed
+   from current genres on every `/api/evidence` call, so they self-correct when an
+   edit lands instead of needing cache invalidation. Don't persist suggestions.
+
+4. **The three guards in `normalize.evaluate` are load-bearing**, each added
+   after it went wrong in production: `SOFT_GENRES` (Wikidata records narrative
+   genre, so its silence about Family means nothing), `ADJACENT` (Plex splits
+   Music/Musical, Wikidata doesn't), and the last-genre rule (Plex's lifestyle
+   categories have no Wikidata equivalent, so a title tagged only "Home and
+   Garden" can have its whole list "disproved" — this emptied two titles).
+   `study/compare.py` scores itself against `corrections.json` and should stay at
+   **9/10**; a drop means a guard broke.
 
 Other things to preserve:
 

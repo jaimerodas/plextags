@@ -7,3 +7,4 @@ study/data/
 study/out/
 data/
 .DS_Store
+.claude/worktrees/

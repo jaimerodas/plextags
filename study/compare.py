@@ -18,7 +18,8 @@ import json
 import urllib.parse
 from collections import Counter, defaultdict
 
-from study.normalize import PLEX_VOCAB, canon, terms_in_phrase, to_plex
+from study.normalize import (PLEX_VOCAB, canon,
+                             evaluate, terms_in_phrase, to_plex)
 from study.paths import (JOINED, JOINED_JSON, LIBRARY, OUT_DIR, corrections_path,
                          WIKIDATA, WIKIPEDIA)
 
@@ -26,31 +27,6 @@ from study.paths import (JOINED, JOINED_JSON, LIBRARY, OUT_DIR, corrections_path
 # is a real channel) and at least this many titles support it. Open vocabulary
 # is fine for reading; it is not fine for writing back to Plex unreviewed.
 MIN_SUPPORT = 3
-
-# Genres whose ABSENCE outside Plex means nothing.
-#
-# Wikidata's P136 is a *narrative genre* property, so it rarely asserts the
-# audience/mode tags Plex leans on. Wikidata lists Cars as "buddy, comedy,
-# flashback" and Moana as "action, adventure, comedy, musical" — neither says
-# "family film", yet both plainly are. Scoring silence as contradiction made
-# Family and Adventure the two most-flagged genres in the whole library, which
-# is a bug in the method, not a finding about the library.
-#
-# These are never proposed for removal and are reported separately.
-SOFT_GENRES = {"Family", "Adventure"}
-
-# Plex genre pairs that outside sources don't distinguish between.
-#
-# Plex separates Music (music is the subject) from Musical (characters sing);
-# Wikidata has only "musical film" for both. Projecting that onto Musical alone
-# made School of Rock, Pitch Perfect and This Is Spinal Tap look like they had a
-# spurious Music tag, when the sources plainly support one. If a genre's
-# neighbour is supported, the genre isn't contradicted.
-ADJACENT = {
-    "Music": {"Musical"},
-    "Musical": {"Music"},
-    "Science": {"Science Fiction", "Documentary"},
-}
 
 
 def load() -> tuple[dict, dict, dict]:
@@ -80,26 +56,14 @@ def build_rows(lib: dict, wd: dict, wp: dict) -> list[dict]:
         wp_plex, wp_outside = to_plex(wp_labels)
 
         sources = sum(1 for s in (w.get("genres"), wp_labels) if s)
-        union = wd_plex | wp_plex
-        both = wd_plex & wp_plex
-
-        # How much the outside sources actually said. A title described only as
-        # "disaster film" isn't evidence that Plex's Drama and Thriller are
-        # wrong — it's evidence that nobody wrote much down.
         evidence = len({canon(g) for g in w.get("genres", [])} |
                        {canon(g) for g in wp_labels})
-        well_evidenced = sources == 2 and evidence >= 2
-
-        # Only judge a title we actually have outside evidence for. A tag whose
-        # adjacent genre is supported counts as supported (see ADJACENT).
-        supported = set(union)
-        for g in plex:
-            if ADJACENT.get(g, set()) & union:
-                supported.add(g)
-        extras = sorted(plex - supported) if union else []
-        # "missing" requires corroboration from both sources, since a single
-        # source's idiosyncratic label is a weak basis for adding a tag.
-        missing = sorted(both - plex) if sources == 2 else []
+        # All the judgement — guards included — lives in normalize.evaluate so
+        # the study and the live app can't drift apart.
+        v = evaluate(plex, wd_plex, wp_plex, sources, evidence)
+        supported = set(v["supported"])
+        extras = sorted(plex - supported) if (wd_plex | wp_plex) else []
+        missing = v["add"]
 
         rows.append({
             "ratingKey": item["ratingKey"],
@@ -121,13 +85,8 @@ def build_rows(lib: dict, wd: dict, wp: dict) -> list[dict]:
             "evidence": evidence,
             "extras": extras,
             "missing": missing,
-            # Both sources present, enough said, and neither supporting the tag
-            # is the strongest signal available; soft genres are held back
-            # because silence about them isn't evidence (see SOFT_GENRES).
-            "extras_confident": (sorted(set(extras) - supported - SOFT_GENRES)
-                                 if well_evidenced else []),
-            "extras_soft": (sorted((set(extras) - supported) & SOFT_GENRES)
-                            if well_evidenced else []),
+            "extras_confident": v["remove"],
+            "extras_soft": v["remove_soft"],
         })
     return rows
 

@@ -1,17 +1,32 @@
 import { useState } from "react";
 import type { Item } from "../api";
 import type { Edits } from "../state/edits";
+import type { LiveSuggestion } from "../state/suggestions";
+import { Suggestions } from "./Suggestions";
 
 interface Props {
   item: Item;
   edits: Edits;
   allGenres: string[];
+  suggestion: LiveSuggestion | null;
+  hasEvidence: boolean;
   onAdd: (item: Item, genre: string) => void;
   onRemove: (item: Item, genre: string) => void;
+  onDismiss: (item: Item, genre: string, direction: "add" | "remove") => void;
   onClose: () => void;
 }
 
-export function TitleEditor({ item, edits, allGenres, onAdd, onRemove, onClose }: Props) {
+export function TitleEditor({
+  item,
+  edits,
+  allGenres,
+  suggestion,
+  hasEvidence,
+  onAdd,
+  onRemove,
+  onDismiss,
+  onClose,
+}: Props) {
   const [newGenre, setNewGenre] = useState("");
   const d = edits.get(item.ratingKey);
   const pendingAdds = [...(d?.add ?? [])];
@@ -75,6 +90,14 @@ export function TitleEditor({ item, edits, allGenres, onAdd, onRemove, onClose }
             Add
           </button>
         </div>
+        <Suggestions
+          item={item}
+          suggestion={suggestion}
+          hasEvidence={hasEvidence}
+          onAdd={onAdd}
+          onRemove={onRemove}
+          onDismiss={onDismiss}
+        />
       </div>
     </div>
   );

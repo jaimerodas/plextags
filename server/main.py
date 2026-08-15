@@ -7,7 +7,7 @@ import urllib3
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from . import plex, store
+from . import evidence, plex, store
 
 # Local Plex servers often use self-signed/plex.direct certs; we skip verify.
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -152,6 +152,104 @@ def refresh_start(section_id: str, req: RefreshRequest):
 def refresh_status(section_id: str):
     return _jobs.get(section_id) or {"running": False, "done": 0, "total": 0,
                                      "error": None}
+
+
+# ------------------------------------------------------------------ evidence
+
+def _cached_items() -> list[dict]:
+    """Every item across the cached libraries, ignoring sections never fetched."""
+    items: list[dict] = []
+    for path in store.DATA_DIR.glob("library_*.json"):
+        lib = store._load_json(path) or {}
+        items.extend(lib.get("items") or [])
+    return items
+
+
+@app.get("/api/evidence")
+def evidence_get():
+    """Per-title suggestions, derived fresh from cached evidence on every call.
+
+    Nothing about a *suggestion* is persisted — only what the outside sources
+    said. Suggestions are recomputed here against the library's current genres,
+    so accepting an edit or re-downloading from Plex makes them correct
+    themselves rather than going stale.
+
+    They are computed server-side (not in the browser) so that the guards in
+    study/normalize.py apply in exactly one language and can't drift.
+    """
+    data = store.load_evidence()
+    ev = data.get("items") or {}
+    suggestions = {}
+    for item in _cached_items():
+        s = evidence.suggest(item, ev.get(item["ratingKey"]))
+        if s["add"] or s["remove"] or s["removeSoft"]:
+            suggestions[item["ratingKey"]] = s
+    return {"fetchedAt": data.get("fetchedAt"),
+            "count": len(ev),
+            "suggestions": suggestions,
+            "dismissed": store.load_dismissed()}
+
+
+# Evidence refresh is its own job, deliberately separate from the Plex library
+# refresh: Wikipedia changes on a scale of months, your genres change per edit.
+_ev_job: dict = {"running": False, "done": 0, "total": 0, "error": None,
+                 "note": None}
+
+
+@app.post("/api/evidence/refresh")
+def evidence_refresh_start():
+    cfg = _cfg()
+    server = _server_or_400(cfg)
+    with _jobs_lock:
+        if _ev_job["running"]:
+            return _ev_job
+        _ev_job.update(running=True, done=0, total=0, error=None, note="Starting…")
+
+    def run():
+        try:
+            items = []
+            for sec in plex.get_sections(server["url"], cfg["clientId"],
+                                         server["accessToken"]):
+                lib = store.load_library(sec["id"], sec["kind"])
+                if lib:
+                    items.extend(lib["items"])
+            if not items:
+                raise RuntimeError("No cached library — download a library first")
+
+            def progress(done: int, total: int, note: str):
+                _ev_job.update(done=done, total=total, note=note)
+
+            store.save_evidence(evidence.build(items, progress))
+        except Exception as e:
+            _ev_job["error"] = str(e)
+        finally:
+            _ev_job["running"] = False
+
+    threading.Thread(target=run, daemon=True).start()
+    return _ev_job
+
+
+@app.get("/api/evidence/refresh")
+def evidence_refresh_status():
+    return _ev_job
+
+
+class Dismissal(BaseModel):
+    ratingKey: str
+    genre: str
+    direction: str  # "add" | "remove"
+
+
+@app.post("/api/dismissals")
+def dismissal_add(d: Dismissal):
+    if d.direction not in ("add", "remove"):
+        raise HTTPException(400, "direction must be 'add' or 'remove'")
+    return store.dismiss(d.ratingKey, d.genre, d.direction)
+
+
+@app.delete("/api/dismissals/{rating_key}")
+def dismissal_clear(rating_key: str):
+    return store.undismiss(rating_key)
 
 
 # --------------------------------------------------------------------- apply
