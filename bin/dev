@@ -79,27 +79,46 @@ fi
 
 # Job control puts each background job in its own process group, so a single
 # `kill -- -$pid` takes down the server and its children (uvicorn reloader,
-# vite's esbuild, the tagging subshell) together.
+# vite's esbuild, the tagging subshell) together. It is switched back off once
+# both are running — see `set +m` below.
 set -m
 
 pids=""
 
 start() {
   local tag=$1 color=$2; shift 2
+  # stdin is /dev/null so the servers see a non-tty: vite would otherwise call
+  # setRawMode() to bind its keyboard shortcuts, and tcsetattr from a background
+  # process group raises SIGTTOU, suspending the whole job.
   (
     "$@" 2>&1 | while IFS= read -r line; do
       printf '%s%-4s%s %s\n' "$color" "$tag" "$RESET" "$line"
     done
-  ) &
+  ) </dev/null &
   pids="$pids $!"
 }
 
 shutdown() {
   # Clearing the traps first keeps the EXIT trap from re-entering this.
   trap - INT TERM EXIT
-  local pid
+  local pid i alive
   for pid in $pids; do
+    # CONT after TERM: a job that got stopped anyway would hold the TERM pending
+    # until it is resumed, and the wait below would never return.
     kill -TERM -- "-$pid" 2>/dev/null
+    kill -CONT -- "-$pid" 2>/dev/null
+  done
+  # Don't let one wedged child hang the shutdown; escalate after ~5s.
+  for i in $(seq 1 50); do
+    alive=0
+    for pid in $pids; do
+      kill -0 "$pid" 2>/dev/null && alive=1
+    done
+    [ "$alive" = 0 ] && break
+    sleep 0.1
+  done
+  for pid in $pids; do
+    kill -KILL -- "-$pid" 2>/dev/null
   done
   wait 2>/dev/null
   printf '\n%s==>%s stopped\n' "$BOLD" "$RESET"
@@ -113,6 +132,13 @@ trap shutdown EXIT
   uv run uvicorn server.main:app --port "$API_PORT" --reload
 [ "$run_web" = 1 ] && start web "$MAGENTA" \
   npm run dev --prefix web -- --port "$WEB_PORT" --strictPort
+
+# Both jobs already have their own process groups, so `kill -- -$pid` still
+# works. Monitor mode has to go off now: it also gives every *foreground*
+# command its own process group and hands it the terminal, which would send
+# Ctrl-C to the `sleep 1` below instead of to this script — the INT trap would
+# never run and the loop would just start another sleep.
+set +m
 
 # Wait for the port that actually serves the UI, then print where to go.
 banner_port=$WEB_PORT

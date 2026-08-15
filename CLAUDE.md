@@ -20,6 +20,17 @@ with tagged output, and cleans both up on Ctrl-C. It is bash 3.2 compatible (the
 macOS system bash) — no `wait -n`, no associative arrays. It relies on `set -m`
 so that `kill -- -$pid` reaps each server's whole child tree; don't remove that.
 
+Two signal-handling details there are load-bearing, and both fail silently:
+
+- `set -m` is switched **off** again once both servers are up. Monitor mode also
+  puts every *foreground* command in its own process group and gives it the
+  terminal, so leaving it on sends Ctrl-C to the poll loop's `sleep 1` instead of
+  to the script — the INT trap never runs and Ctrl-C looks like it does nothing.
+- The servers are started with stdin on `/dev/null`. Vite calls `setRawMode()` to
+  bind its keyboard shortcuts, and `tcsetattr` from a background process group
+  raises SIGTTOU, which suspends the whole job (`T` in `ps`). A stopped job holds
+  a pending SIGTERM until it is resumed, so `shutdown` sends CONT after TERM.
+
 Equivalent by hand — the frontend is **not** served by the backend:
 
 ```bash
