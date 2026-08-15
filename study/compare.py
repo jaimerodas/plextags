@@ -163,7 +163,8 @@ def candidate_channels(rows: list[dict]) -> list[tuple[str, int, list[str]]]:
                   key=lambda x: -x[1])
 
 
-def proposed_corrections(rows: list[dict], mode: str = "both") -> list[dict]:
+def proposed_corrections(rows: list[dict], mode: str = "both",
+                         include_locked: bool = False) -> list[dict]:
     """corrections.json entries, in the format plex_genres.py apply accepts.
 
     Conservative on purpose: only removals both sources agree on, and only adds
@@ -176,12 +177,23 @@ def proposed_corrections(rows: list[dict], mode: str = "both") -> list[dict]:
     support = Counter(g for r in rows for g in r["plex"])
     out = []
     for r in rows:
-        if r["locked"]:
-            continue  # already hand-corrected; don't second-guess it
+        if r["locked"] and not include_locked:
+            # A locked genre field was written by a human (or by this tool on
+            # their behalf), so by default it is left alone. Note that the lock
+            # only records that *something* was edited once — not that every
+            # genre on the item was deliberately approved.
+            continue
         remove = r["extras_confident"] if mode in ("both", "removals") else []
         add = ([g for g in r["missing"]
                 if g in PLEX_VOCAB and support.get(g, 0) >= MIN_SUPPORT]
                if mode in ("both", "adds") else [])
+        # Never strip a title down to nothing. Plex's lifestyle categories
+        # (Home and Garden, News, Food) have no Wikidata equivalent at all, so a
+        # title carrying only one of those can have its entire genre list
+        # "disproved" — which is how Grand Designs and Saturday Night Live ended
+        # up with zero genres. An untagged title is worse than a debatable one.
+        if remove and not add and not (set(r["plex"]) - set(remove)):
+            continue
         if not remove and not add:
             continue
         entry = {"ratingKey": r["ratingKey"], "title": r["title"],
@@ -222,7 +234,7 @@ def validate_against_known(rows: list[dict]) -> dict:
     return {"checks": checks, "hit": hit, "total": len(checks)}
 
 
-def main(mode: str = "both") -> int:
+def main(mode: str = "both", include_locked: bool = False) -> int:
     lib, wd, wp = load()
     rows = build_rows(lib, wd, wp)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -241,7 +253,7 @@ def main(mode: str = "both") -> int:
                         "; ".join(r["extras"]), "; ".join(r["extras_confident"]),
                         "; ".join(r["missing"]), "; ".join(r["outside_vocab"])])
 
-    props = proposed_corrections(rows, mode)
+    props = proposed_corrections(rows, mode, include_locked)
     # Split by section: `apply` uses one --section/--kind for the entire file, so
     # a mixed file would send TV edits to the movie library.
     groups = defaultdict(list)
@@ -250,7 +262,8 @@ def main(mode: str = "both") -> int:
             {k: v for k, v in p.items() if k not in ("kind", "sectionId")})
     written = []
     for (kind, sec), entries in sorted(groups.items()):
-        path = corrections_path(kind, sec, mode)
+        path = corrections_path(kind, sec,
+                                mode + ("_locked" if include_locked else ""))
         path.write_text(json.dumps(entries, indent=2, ensure_ascii=False),
                         encoding="utf-8")
         written.append((path, kind, sec, len(entries)))
@@ -276,4 +289,6 @@ def main(mode: str = "both") -> int:
 
 if __name__ == "__main__":
     import sys
-    raise SystemExit(main(sys.argv[1] if len(sys.argv) > 1 else "both"))
+    args = sys.argv[1:]
+    raise SystemExit(main(args[0] if args else "both",
+                          "--include-locked" in args))

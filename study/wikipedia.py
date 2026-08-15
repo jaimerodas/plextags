@@ -108,9 +108,12 @@ def infobox_genres(text: str) -> list[str]:
     box = _infobox(text, "television")
     if not box:
         return []
-    m = re.search(r"\n\s*\|\s*genres?\s*=\s*(.*?)(?=\n\s*\|\s*[a-z_0-9]+\s*=|\Z)",
+    # [ \t]* not \s* after the '=': an EMPTY "| genre = " would otherwise let the
+    # capture swallow the newline and run on into the next field, which is how
+    # Grand Designs ended up with a genre of "presenter = Kevin McCloud".
+    m = re.search(r"\n\s*\|\s*genres?\s*=[ \t]*(.*?)(?=\n\s*\|\s*[a-z_0-9]+\s*=|\Z)",
                   box, re.S | re.I)
-    if not m:
+    if not m or not m.group(1).strip():
         return []
     body = _strip_markup(m.group(1))
     out = []
