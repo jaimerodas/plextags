@@ -50,7 +50,15 @@ export function countFor(
   return v ? v.add.length + v.remove.length : 0;
 }
 
-/** Every title with outstanding suggestions, most first — drives the review queue. */
+/** Every title with outstanding suggestions, most first — drives the review queue.
+ *
+ * The sort deliberately weighs the *server's* suggestion counts, not the live
+ * filtered ones: judging one row of a title must not move that title's card.
+ * Ranking by the live count meant dismissing one of two suggestions demoted the
+ * card past every other title, which reads as "both got dismissed" — the
+ * remaining row is still there, just forty cards away. Order therefore only
+ * changes when the evidence or the library does.
+ */
 export function queueFor(
   items: Item[],
   suggestions: Record<string, Suggestion>,
@@ -62,9 +70,12 @@ export function queueFor(
     const v = visibleFor(item, suggestions[item.ratingKey], edits, dismissed);
     if (v) out.push({ item, suggestion: v });
   }
+  const rank = (item: Item) => {
+    const s = suggestions[item.ratingKey];
+    return s ? s.add.length + s.remove.length : 0;
+  };
   return out.sort(
     (a, b) =>
-      b.suggestion.add.length + b.suggestion.remove.length -
-      (a.suggestion.add.length + a.suggestion.remove.length),
+      rank(b.item) - rank(a.item) || a.item.title.localeCompare(b.item.title),
   );
 }
