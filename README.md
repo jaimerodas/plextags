@@ -204,21 +204,6 @@ and reads its correction batches (`corrections.json`) at the repo root. Those
 files describe your library, so they are gitignored. If the JSON exports are
 present, the web app uses them to seed its cache before the first Refresh.
 
-## Two Plex API quirks worth knowing
-
-Both are load-bearing; the code has comments where they matter.
-
-1. **The bulk listing truncates tags.** `/library/sections/{id}/all` returns only
-   the first few genre and collection tags per item. To get complete lists, every
-   item's metadata is fetched individually (`/library/metadata/{ratingKey}`).
-   That's why a refresh is a few hundred requests and needs a progress bar.
-
-2. **Tag removals must be one per request.** Plex's subtractive parameter
-   `genre[].tag.tag-` honors only a single value per `PUT`; batching several
-   removals silently drops all but one. Additions *can* be batched
-   (`genre[0].tag.tag`, `genre[1].tag.tag`, …). Collection tags
-   (`collection[].tag.tag-`) have the same limit.
-
 ## License
 
 MIT — see [LICENSE](LICENSE).
