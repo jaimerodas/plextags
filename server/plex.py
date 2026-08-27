@@ -6,6 +6,12 @@ Ports the logic of plex_genres.py (see repo root) with two important quirks:
    list, so we fetch every item's full metadata individually.
 2. Plex's subtractive genre param (genre[].tag.tag-) only honors ONE value
    per request, so removals are sent one per PUT. Adds can be batched.
+
+Collection membership is written the same way as genres (batched adds, one
+removal per PUT, `<field>.locked=1`) — see `_apply_tag_edits`. Renaming or
+deleting a collection itself is different: those go through the collection's
+own object (`type=18` on the section's `/all` endpoint to rename/re-summarize,
+`DELETE /library/collections/{ratingKey}` to delete it).
 """
 
 from __future__ import annotations
@@ -144,6 +150,7 @@ def fetch_items(server_url: str, client_id: str, token: str, section: str,
     def fetch_one(entry: dict) -> dict:
         rk = entry["ratingKey"]
         genres = [g["tag"] for g in entry.get("Genre", [])]
+        collections = [c["tag"] for c in entry.get("Collection", [])]
         ids: dict[str, str] = {}
         locked = False
         complete = False
@@ -157,6 +164,7 @@ def fetch_items(server_url: str, client_id: str, token: str, section: str,
                     meta = rr.json().get("MediaContainer", {}).get("Metadata", [])
                     if meta:
                         genres = [g["tag"] for g in meta[0].get("Genre", [])]
+                        collections = [c["tag"] for c in meta[0].get("Collection", [])]
                         ids = _external_ids(meta[0])
                         locked = any(f.get("name") == "genre" and f.get("locked")
                                      for f in meta[0].get("Field", []))
@@ -171,6 +179,7 @@ def fetch_items(server_url: str, client_id: str, token: str, section: str,
             "title": entry.get("title"),
             "year": entry.get("year"),
             "genres": genres,
+            "collections": collections,
             # Both come free with the metadata call above. `ids` is what lets an
             # item be joined to outside sources (see study/); `locked` marks a
             # genre list a human already corrected. `complete` is False when the
@@ -191,18 +200,41 @@ def fetch_items(server_url: str, client_id: str, token: str, section: str,
     return items
 
 
+def fetch_collections(server_url: str, client_id: str, token: str,
+                      section: str) -> list[dict]:
+    """List a section's collections (id, title, summary, member count, smart)."""
+    r = requests.get(f"{server_url}/library/sections/{section}/collections",
+                     headers=_headers(client_id, token), timeout=30, verify=False)
+    if r.status_code == 404:
+        return []
+    r.raise_for_status()
+    entries = r.json().get("MediaContainer", {}).get("Metadata", [])
+    return [{
+        "ratingKey": m["ratingKey"],
+        "title": m.get("title"),
+        "summary": m.get("summary", ""),
+        "childCount": m.get("childCount"),
+        "smart": bool(m.get("smart")),
+        "subtype": m.get("subtype"),
+    } for m in entries]
+
+
 # -------------------------------------------------------------------- apply
 
-def apply_edits(server_url: str, client_id: str, token: str, section: str,
-                kind: str, edits: list[dict]) -> list[dict]:
-    """Apply [{ratingKey, title?, add[], remove[]}]; returns per-op results."""
+def _apply_tag_edits(server_url: str, client_id: str, token: str, section: str,
+                     kind: str, edits: list[dict], field: str) -> list[dict]:
+    """Apply [{ratingKey, title?, add[], remove[]}] against a tag field.
+
+    Adds can be batched into one PUT; removals MUST be one per request (Plex
+    drops extras silently).
+    """
     headers = _headers(client_id, token)
     libtype = KIND_TYPE[kind]
     results = []
     for edit in edits:
         rk = edit["ratingKey"]
         title = edit.get("title", rk)
-        base = {"type": libtype, "id": rk, "genre.locked": 1}
+        base = {"type": libtype, "id": rk, f"{field}.locked": 1}
 
         reqs: list[tuple[str, dict]] = []
         add = edit.get("add") or []
@@ -210,12 +242,12 @@ def apply_edits(server_url: str, client_id: str, token: str, section: str,
         if add:
             p = dict(base)
             for i, g in enumerate(add):
-                p[f"genre[{i}].tag.tag"] = g
+                p[f"{field}[{i}].tag.tag"] = g
             reqs.append((f"add {', '.join(add)}", p))
         # Removals MUST be one per request (Plex drops extras silently).
         for g in remove:
             p = dict(base)
-            p["genre[].tag.tag-"] = g
+            p[f"{field}[].tag.tag-"] = g
             reqs.append((f"remove {g}", p))
 
         for desc, params in reqs:
@@ -229,3 +261,55 @@ def apply_edits(server_url: str, client_id: str, token: str, section: str,
             results.append({"ratingKey": rk, "title": title, "op": desc,
                             "ok": ok, "status": status})
     return results
+
+
+def apply_edits(server_url: str, client_id: str, token: str, section: str,
+                kind: str, edits: list[dict]) -> list[dict]:
+    """Apply [{ratingKey, title?, add[], remove[]}]; returns per-op results."""
+    return _apply_tag_edits(server_url, client_id, token, section, kind, edits,
+                            "genre")
+
+
+def apply_collection_edits(server_url: str, client_id: str, token: str,
+                           section: str, kind: str,
+                           edits: list[dict]) -> list[dict]:
+    """Apply [{ratingKey, title?, add[], remove[]}] against collection tags."""
+    return _apply_tag_edits(server_url, client_id, token, section, kind, edits,
+                            "collection")
+
+
+def update_collection(server_url: str, client_id: str, token: str, section: str,
+                      rating_key: str, title: str, new_title: str | None = None,
+                      new_summary: str | None = None) -> dict:
+    """Rename and/or re-summarize a collection (a Plex item of type 18)."""
+    params = {"type": 18, "id": rating_key}
+    ops = []
+    if new_title is not None:
+        params["title.value"] = new_title
+        ops.append(f"rename to {new_title}")
+    if new_summary is not None:
+        params["summary.value"] = new_summary
+        ops.append("edit summary")
+    desc = ", ".join(ops)
+    try:
+        r = requests.put(f"{server_url}/library/sections/{section}/all",
+                         params=params, headers=_headers(client_id, token),
+                         timeout=30, verify=False)
+        ok, status = 200 <= r.status_code < 300, r.status_code
+    except requests.RequestException as e:
+        ok, status = False, str(e)
+    return {"ratingKey": rating_key, "title": title, "op": desc, "ok": ok,
+            "status": status}
+
+
+def delete_collection(server_url: str, client_id: str, token: str,
+                      rating_key: str, title: str) -> dict:
+    try:
+        r = requests.delete(f"{server_url}/library/collections/{rating_key}",
+                            headers=_headers(client_id, token), timeout=30,
+                            verify=False)
+        ok, status = 200 <= r.status_code < 300, r.status_code
+    except requests.RequestException as e:
+        ok, status = False, str(e)
+    return {"ratingKey": rating_key, "title": title, "op": "delete collection",
+            "ok": ok, "status": status}

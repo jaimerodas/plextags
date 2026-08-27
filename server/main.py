@@ -138,7 +138,9 @@ def refresh_start(section_id: str, req: RefreshRequest):
             items = plex.fetch_items(server["url"], cfg["clientId"],
                                      server["accessToken"], section_id,
                                      req.kind, progress)
-            store.save_library(section_id, req.kind, items)
+            collections = plex.fetch_collections(server["url"], cfg["clientId"],
+                                                 server["accessToken"], section_id)
+            store.save_library(section_id, req.kind, items, collections)
         except Exception as e:
             job["error"] = str(e)
         finally:
@@ -261,16 +263,42 @@ class Edit(BaseModel):
     remove: list[str] = []
 
 
+class CollectionUpdate(BaseModel):
+    ratingKey: str
+    title: str
+    newTitle: str | None = None
+    newSummary: str | None = None
+
+
+class CollectionDelete(BaseModel):
+    ratingKey: str
+    title: str
+
+
 class ApplyRequest(BaseModel):
     kind: str
     edits: list[Edit]
+    collectionEdits: list[Edit] = []
+    collectionUpdates: list[CollectionUpdate] = []
+    collectionDeletes: list[CollectionDelete] = []
 
 
 @app.post("/api/sections/{section_id}/apply")
 def apply(section_id: str, req: ApplyRequest):
     cfg = _cfg()
     server = _server_or_400(cfg)
-    results = plex.apply_edits(server["url"], cfg["clientId"],
-                               server["accessToken"], section_id, req.kind,
+    args = (server["url"], cfg["clientId"], server["accessToken"])
+    results = []
+    # Deletes run first so a "delete X then recreate X" tags members into the
+    # fresh collection object, not the one about to disappear. Renames/summary
+    # edits run last so the membership step above still targets old titles.
+    for d in req.collectionDeletes:
+        results.append(plex.delete_collection(*args, d.ratingKey, d.title))
+    results += plex.apply_edits(*args, section_id, req.kind,
                                [e.model_dump() for e in req.edits])
+    results += plex.apply_collection_edits(*args, section_id, req.kind,
+                                          [e.model_dump() for e in req.collectionEdits])
+    for u in req.collectionUpdates:
+        results.append(plex.update_collection(*args, section_id, u.ratingKey,
+                                              u.title, u.newTitle, u.newSummary))
     return {"results": results, "ok": all(r["ok"] for r in results)}

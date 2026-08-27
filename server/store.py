@@ -96,8 +96,9 @@ def load_library(section_id: str, kind: str | None = None) -> dict | None:
     return None
 
 
-def save_library(section_id: str, kind: str, items: list[dict]) -> dict:
+def save_library(section_id: str, kind: str, items: list[dict],
+                 collections: list[dict]) -> dict:
     data = {"sectionId": section_id, "kind": kind, "seeded": False,
-            "savedAt": time.time(), "items": items}
+            "savedAt": time.time(), "items": items, "collections": collections}
     _save_json(library_path(section_id), data)
     return data
