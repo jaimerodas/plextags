@@ -3,11 +3,13 @@
 # bin/dev — start PlexTags for local development.
 #
 # Installs anything missing, then runs the FastAPI backend and the Vite dev
-# server together with tagged, interleaved output. Ctrl-C stops both.
+# server together with tagged, interleaved output. Opens the app in the browser
+# once it is up. Ctrl-C stops both.
 #
 #   bin/dev              start both
 #   bin/dev --api        backend only
 #   bin/dev --web        frontend only (needs the backend for /api to work)
+#   bin/dev --no-open    don't open the browser
 #
 # Written for bash 3.2 (the macOS system bash), so no `wait -n`.
 
@@ -31,11 +33,15 @@ die()  { warn "$*"; exit 1; }
 
 run_api=1
 run_web=1
+open_browser=1
 for arg in "$@"; do
   case "$arg" in
     --api|--backend)  run_web=0 ;;
     --web|--frontend) run_api=0 ;;
-    -h|--help) sed -n '3,12p' "$0" | cut -c3-; exit 0 ;;
+    --no-open)        open_browser=0 ;;
+    # Help is the header comment block, however long it happens to be.
+    -h|--help) awk 'NR == 1 { next } !/^#/ { exit }
+                    { sub(/^# ?/, ""); if (NR > 2 || $0 != "") print }' "$0"; exit 0 ;;
     *) die "unknown option: $arg (try --help)" ;;
   esac
 done
@@ -59,6 +65,11 @@ fi
 
 if [ "$run_web" = 1 ]; then
   command -v npm >/dev/null || die "npm not found. Install node: brew install node"
+  # An old node passes the npm check, survives npm install, and only fails once
+  # vite starts. Vite 6 needs node 18+.
+  node_major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null)
+  [ "${node_major:-0}" -ge 18 ] 2>/dev/null \
+    || die "node ${node_major:-?} is too old for vite (needs 18+). Upgrade: brew upgrade node"
   check_port "$WEB_PORT" frontend
   # Reinstall when the lockfile is newer than the install marker.
   if [ ! -d web/node_modules ] || [ web/package-lock.json -nt web/node_modules ]; then
@@ -157,6 +168,13 @@ else
   say "${GREEN}API is up:${RESET} ${BOLD}http://localhost:$API_PORT/docs${RESET}"
 fi
 printf '    %sCtrl-C to stop%s\n\n' "$DIM" "$RESET"
+
+# Only when the wait loop above actually saw the port: if vite never came up,
+# opening the browser would just show a connection error.
+if [ "$run_web" = 1 ] && [ "$open_browser" = 1 ] && [ -t 1 ] \
+    && [ -n "$(port_pid "$WEB_PORT")" ]; then
+  command -v open >/dev/null && open "http://localhost:$WEB_PORT"
+fi
 
 # bash 3.2 has no `wait -n`, so poll: if either job exits, tear the rest down.
 while :; do
