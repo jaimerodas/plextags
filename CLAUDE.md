@@ -118,7 +118,8 @@ Violating either of these produces silent, hard-to-spot data bugs.
    Music/Musical, Wikidata doesn't), and the last-genre rule (Plex's lifestyle
    categories have no Wikidata equivalent, so a title tagged only "Home and
    Garden" can have its whole list "disproved" — this emptied two titles).
-   `study/compare.py` scores itself against `corrections.json` and should stay at
+   `study/compare.py` scores itself against the local `corrections.json`
+   (gitignored) and should stay at
    **9/10**; a drop means a guard broke.
 
 5. **Collection operations have a fixed apply order.** The apply route runs
@@ -143,9 +144,10 @@ Other things to preserve:
   certs. This is intentional for LAN use.
 - Requests are keyed on `ratingKey`, which is stable per server but **not** across
   servers. Library caches are per section id for the same reason.
-- `data/` and the root `plex_*.json` exports contain the user's real library and a
-  live Plex token. `data/` is gitignored; don't add anything from it to commits,
-  and don't echo tokens into logs or output.
+- `data/`, the root `plex_*.{csv,json}` exports, and `corrections.json` describe
+  the real library, and `data/config.json` holds a live Plex token. All of them
+  are gitignored; never add any of them to a commit, and don't echo tokens into
+  logs or output.
 
 ## Backend/CLI parity
 
@@ -157,8 +159,8 @@ The CLI has no collections support, on purpose. Collections are web-app-only
 scope; the parity rule covers genre writes.
 
 `server/store.py` seeds an empty cache from the root `plex_movies.json` /
-`plex_shows.json` CLI exports so there's something to look at before the first
-refresh; the UI flags that data with a "seeded" banner.
+`plex_shows.json` CLI exports (local-only, gitignored) so there's something to
+look at before the first refresh; the UI flags that data with a "seeded" banner.
 
 ## Conventions
 

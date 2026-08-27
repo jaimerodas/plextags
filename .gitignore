@@ -6,6 +6,9 @@ web/tsconfig.tsbuildinfo
 study/data/
 study/out/
 data/
+plex_*.csv
+plex_*.json
+corrections.json
 .DS_Store
 .claude/worktrees/
 .claude/settings.local.json

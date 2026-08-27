@@ -175,17 +175,11 @@ A list of objects, each keyed by `ratingKey`. Use `remove` and/or `add`, or
 ]
 ```
 
-The `corrections.json` in the repo is a real, applied correction batch — kept
-as a worked example.
-
 ## What's in the repo
 
 ```
 bin/dev               dev launcher — installs deps, runs both servers
 plex_genres.py        standalone CLI (stdlib only) — the original tool
-corrections.json      example correction batch for the CLI
-plex_movies.{csv,json}  CLI exports; the JSON also seeds the web app's cache
-plex_shows.{csv,json}   on first run, before the first Refresh
 
 server/               FastAPI backend
   main.py             HTTP routes; background refresh jobs
@@ -205,6 +199,11 @@ data/                 gitignored: config.json (client id, Plex token, chosen
 docs/                 screenshots for this README
 ```
 
+The CLI writes its exports (`plex_movies.{csv,json}`, `plex_shows.{csv,json}`)
+and reads its correction batches (`corrections.json`) at the repo root. Those
+files describe your library, so they are gitignored. If the JSON exports are
+present, the web app uses them to seed its cache before the first Refresh.
+
 ## Two Plex API quirks worth knowing
 
 Both are load-bearing; the code has comments where they matter.
@@ -219,3 +218,7 @@ Both are load-bearing; the code has comments where they matter.
    removals silently drops all but one. Additions *can* be batched
    (`genre[0].tag.tag`, `genre[1].tag.tag`, …). Collection tags
    (`collection[].tag.tag-`) have the same limit.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
