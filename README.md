@@ -42,7 +42,7 @@ You need `uv` and `npm`:
 
 ```bash
 brew install uv node    # macOS; on Linux, install uv and Node.js your usual way
-git clone https://github.com/<you>/plextags.git
+git clone https://github.com/jaimerodas/plextags.git
 cd plextags
 ```
 
