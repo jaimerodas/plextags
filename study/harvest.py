@@ -18,8 +18,8 @@ from study.paths import DATA_DIR, LIBRARY
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Section 3 ("Commercials") holds unmatched home-media rips: no metadata agent
-# match, no Guid[], nothing to compare against. Study only real libraries.
+# Sections named here are skipped: a library of unmatched or personal media has
+# no metadata-agent match, no Guid[], and nothing for an outside source to compare.
 SKIP_SECTION_TITLES = {"commercials"}
 
 

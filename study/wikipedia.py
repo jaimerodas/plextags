@@ -26,7 +26,7 @@ import urllib.request
 from study.paths import DATA_DIR, LIBRARY, WIKIDATA, WIKIPEDIA, WIKITEXT
 
 API = "https://en.wikipedia.org/w/api.php"
-UA = "PlexTagsGenreStudy/0.1 (personal library research; single-run batch)"
+UA = "PlexTagsGenreStudy/0.1 (PlexTags genre study; batch run)"
 BATCH = 20     # titles per request; rvprop=content makes these responses large
 THROTTLE = 1.5  # seconds between requests — full-wikitext batches get 429'd fast
 

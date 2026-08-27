@@ -9,8 +9,9 @@ import html
 import json
 from collections import Counter
 
-from study.compare import (SOFT_GENRES, build_rows, candidate_channels,
-                           lineup_health, load, validate_against_known)
+from study.compare import (build_rows, candidate_channels, lineup_health, load,
+                           validate_against_known)
+from study.normalize import SOFT_GENRES
 from study.paths import REPORT, OUT_DIR
 
 CSS = """
@@ -202,27 +203,27 @@ def build(rows, health, cands, val, lib) -> str:
     <div class="fig"><span class="n">{n_extra}</span><span class="k">over-tags found</span></div>
     <div class="fig"><span class="n">{n_miss}</span><span class="k">under-tags found</span></div>
     <div class="fig"><span class="n">{val.get('hit', 0)}/{val.get('total', 0)}</span>
-      <span class="k">your fixes rediscovered</span></div>
+      <span class="k">hand-fixes rediscovered</span></div>
   </div>
 </header>
 
 <section><div class="col">
   <p class="eyebrow">Does the method work</p>
-  <h2>Checked against your own corrections first</h2>
-  <p>You had already fixed eight titles by hand. Those are a labelled answer key:
-  run the pipeline blind and see whether it finds the same problems.</p>
+  <h2>Checked against the hand-corrected titles first</h2>
+  <p>The eight hand-corrected titles are a labelled answer key: run the pipeline
+  blind and see whether it finds the same problems.</p>
   <div class="verdict"><span class="score">{val.get('hit', 0)}/{val.get('total', 0)}</span>
     <span>removals independently rediscovered</span></div>
 </div>
 <div class="scroll" style="max-width:760px"><table>
-  <thead><tr><th>Title</th><th>Genre you removed</th><th>Pipeline</th></tr></thead>
+  <thead><tr><th>Title</th><th>Genre removed</th><th>Pipeline</th></tr></thead>
   <tbody>{val_rows}</tbody></table></div>
 <div class="col"><div class="note"><strong>The one miss is the interesting one.</strong>
-  <p style="margin:8px 0 0">You removed <em>Science Fiction</em> from <em>Alias</em>.
-  Wikidata explicitly lists it as a science fiction series, and the Wikipedia lead
-  calls it a “spy action thriller”. The pipeline sided with Wikidata. That's the
-  method working correctly and still disagreeing with you — a reminder that these
-  sources are a second opinion, not an authority.</p></div></div>
+  <p style="margin:8px 0 0">The hand-correction removed <em>Science Fiction</em> from
+  <em>Alias</em>. Wikidata explicitly lists it as a science fiction series, and the
+  Wikipedia lead calls it a “spy action thriller”. The pipeline sided with Wikidata.
+  That's the method working correctly and still disagreeing with the hand-correction
+  — a reminder that these sources are a second opinion, not an authority.</p></div></div>
 </section>
 
 <section>
@@ -253,7 +254,7 @@ def build(rows, health, cands, val, lib) -> str:
   as “action, adventure, comedy, musical”. Silence isn't contradiction, and
   scoring it as one produced {len(soft)} false accusations.</p>
   <p>Those two genres are now reported separately and never proposed for removal.
-  They're listed here so you can judge them yourself.</p>
+  They're listed here for review.</p>
   <div class="chips" style="margin-top:14px">{chips(
       sorted({r['title'] for r in soft})[:40])}</div>
 </div></section>
@@ -269,7 +270,7 @@ def build(rows, health, cands, val, lib) -> str:
 
 <section>
   <p class="eyebrow">Outside the vocabulary</p>
-  <h2>Channels you don't have yet</h2>
+  <h2>Channels not yet in the library</h2>
   <div class="col"><p>Genres the outside sources assert that Plex has no equivalent
   for. These are never written back automatically — they're channel ideas, shown
   where at least three titles support them.</p></div>
@@ -305,17 +306,6 @@ def build(rows, health, cands, val, lib) -> str:
   proposals can only ever come from the {len(rows) - locked} that aren't.
   {n_locked_findings} titles still show over-tagging but are locked, and are
   listed in the findings above without being proposed for any automatic change.</p>
-  <h3 style="margin-top:26px">Library hygiene noticed along the way</h3>
-  <ul>
-    <li><em>Schitt's Creek</em> is filed in the <strong>Movies</strong> library and
-      has no metadata-agent match at all, so it has no genres and can't be checked.</li>
-    <li>A third library, <em>Commercials</em>, holds unmatched clips; it's excluded.</li>
-    <li>The <code>plex_movies.json</code> / <code>plex_shows.json</code> exports
-      committed to the repo are stale — 143 and 85 titles against 185 and 89 live.</li>
-    <li>One title lost its metadata to a transient fetch failure that the app
-      silently swallowed; the fetcher now retries and the harvest refuses to save
-      a partial library.</li>
-  </ul>
 </div></section>
 
 <footer>study/ · {len(rows)} titles · Wikidata P136 + en.wikipedia · run

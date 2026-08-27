@@ -2,7 +2,9 @@
 
 A read-only pipeline that checks every title's Plex genres against an independent
 account of its genre, and reports where they disagree. It never writes to Plex;
-the most it does is emit a `corrections.json` for you to review and apply.
+the most it does is emit a `corrections.json` for review and manual apply.
+
+Genre data comes from Wikidata (CC0) and the English Wikipedia (CC BY-SA).
 
 ## Running it
 
@@ -34,8 +36,8 @@ python3 plex_genres.py apply --section 2 --kind movie \
 
 Proposals are deliberately conservative: removals only where both sources are
 present, specific, and silent on the tag; additions only for genres that are
-already real channels with at least `MIN_SUPPORT` titles behind them. Titles you
-have already hand-corrected (genre-locked in Plex) are skipped entirely.
+already real channels with at least `MIN_SUPPORT` titles behind them. Titles
+already hand-corrected (genre-locked in Plex) are skipped entirely.
 
 ## Why it's built this way
 
@@ -58,10 +60,10 @@ have already hand-corrected (genre-locked in Plex) are skipped entirely.
 ## Validating changes
 
 `compare` scores itself against the eight corrections in the repo's root
-`corrections.json` — titles you fixed by hand, still detectable because the app
+`corrections.json` — hand-corrected titles, still detectable because the app
 locks the genre field when it writes. It currently rediscovers **9 of 10**
 removals. The one miss (*Alias* / Science Fiction) is genuine disagreement:
 Wikidata lists Alias as science fiction.
 
-If you edit `normalize.py`, re-run `compare` and watch that number. A drop means
-the mapping or subsumption rules broke something.
+After an edit to `normalize.py`, re-run `compare` and check that number. A drop
+means the mapping or subsumption rules broke something.

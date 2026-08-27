@@ -20,7 +20,7 @@ from study.paths import DATA_DIR, LIBRARY, WIKIDATA
 
 ENDPOINT = "https://query.wikidata.org/sparql"
 # Wikimedia asks automated clients to identify themselves and stay polite.
-UA = "PlexTagsGenreStudy/0.1 (personal library research; single-run batch)"
+UA = "PlexTagsGenreStudy/0.1 (PlexTags genre study; batch run)"
 BATCH = 100
 
 QUERY = """

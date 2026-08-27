@@ -23,7 +23,7 @@ from study.normalize import (PLEX_VOCAB, canon,
 from study.paths import (JOINED, JOINED_JSON, LIBRARY, OUT_DIR, corrections_path,
                          WIKIDATA, WIKIPEDIA)
 
-# An "add" is only proposed when the genre already exists in your library (so it
+# An "add" is only proposed when the genre already exists in the library (so it
 # is a real channel) and at least this many titles support it. Open vocabulary
 # is fine for reading; it is not fine for writing back to Plex unreviewed.
 MIN_SUPPORT = 3
@@ -239,7 +239,7 @@ def main(mode: str = "both", include_locked: bool = False) -> int:
         print(f"         python3 plex_genres.py apply --section {sec} "
               f"--kind {kind} --file {path} --dry-run")
     if val:
-        print(f"\nvalidation vs your 8 hand-corrections: "
+        print(f"\nvalidation vs the hand-corrections in corrections.json: "
               f"{val['hit']}/{val['total']} rediscovered")
         for c in val["checks"]:
             print(f"   {'HIT ' if c['flagged'] else 'MISS'}  {c['title']}: {c['genre']}")
