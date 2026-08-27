@@ -1,9 +1,11 @@
 # PlexTags
 
-A local web app for cleaning up the **genre tags** in your Plex library, presented
-as a TV-style *channel lineup*: each genre is a "channel", and every movie or show
-tagged with it is a title in that channel. You add and remove titles from channels,
-review the queued changes, then push them all to Plex in one go.
+A local web app for cleaning up the **genre tags** and **collections** in your
+Plex library, presented as a TV-style *channel lineup*: each genre is a
+"channel", and every movie or show tagged with it is a title in that channel.
+You add and remove titles from channels, review the queued changes, then push
+them all to Plex in one go. The Collections tab gives the same workflow for
+Plex collections, plus create, rename, summary edits, and delete.
 
 Everything runs on your own machine and talks directly to your Plex Media Server.
 Nothing is sent anywhere else.
@@ -64,6 +66,24 @@ npm run dev --prefix web                      # terminal 2
 5. **Sync** — the edits tray at the bottom shows everything queued. Saving writes
    the changes to Plex and then automatically re-downloads the library so what you
    see matches what actually stuck.
+
+### Collections
+
+The **Collections** tab lists each collection in the section as a card. The
+cards work like genre channels, with more controls:
+
+- Add and remove titles with the same staged edits as genres.
+- **+ New collection** stages a new collection. Plex creates it when the first
+  member is saved, so a staged collection with no members is dropped at Save.
+- The ✎ button renames a collection. A rename keeps the poster, the members,
+  and the sort order.
+- Click the summary text to edit it.
+- The × button on a card stages a delete. The card stays visible with an undo
+  until you save. CAUTION: A saved delete is permanent on Plex.
+
+Smart collections show a "smart" badge and are read-only. The edits tray shows
+collection changes with a ⊞ prefix, next to the genre changes, and one Save
+applies everything.
 
 ### Suggestions from Wikipedia
 
@@ -140,8 +160,9 @@ server/               FastAPI backend
 web/                  React + TypeScript + Vite frontend
   src/App.tsx         top-level state and screen routing
   src/api.ts          typed fetch wrappers for the backend
-  src/state/edits.ts  pending-edit model and the genre->channel grouping
-  src/views/          Auth, Lineup, TitleEditor, EditsTray
+  src/state/edits.ts  pending-edit model and the tag->channel grouping
+  src/state/collections.ts  staged collection operations and their rules
+  src/views/          Auth, Lineup, Collections, TitleEditor, EditsTray
 
 data/                 gitignored: config.json (client id, Plex token, chosen
                       server) and library_<section>.json caches
@@ -151,12 +172,13 @@ data/                 gitignored: config.json (client id, Plex token, chosen
 
 Both are load-bearing; the code has comments where they matter.
 
-1. **The bulk listing truncates genres.** `/library/sections/{id}/all` returns only
-   the first few genre tags per item. To get complete lists, every item's metadata
-   is fetched individually (`/library/metadata/{ratingKey}`). That's why a refresh
-   is a few hundred requests and needs a progress bar.
+1. **The bulk listing truncates tags.** `/library/sections/{id}/all` returns only
+   the first few genre and collection tags per item. To get complete lists, every
+   item's metadata is fetched individually (`/library/metadata/{ratingKey}`).
+   That's why a refresh is a few hundred requests and needs a progress bar.
 
-2. **Genre removals must be one per request.** Plex's subtractive parameter
+2. **Tag removals must be one per request.** Plex's subtractive parameter
    `genre[].tag.tag-` honors only a single value per `PUT`; batching several
    removals silently drops all but one. Additions *can* be batched
-   (`genre[0].tag.tag`, `genre[1].tag.tag`, …).
+   (`genre[0].tag.tag`, `genre[1].tag.tag`, …). Collection tags
+   (`collection[].tag.tag-`) have the same limit.

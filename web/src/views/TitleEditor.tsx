@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Item } from "../api";
+import type { Item, PlexCollection } from "../api";
 import type { Edits } from "../state/edits";
 import type { LiveSuggestion } from "../state/suggestions";
 import { Suggestions } from "./Suggestions";
@@ -13,6 +13,11 @@ interface Props {
   onAdd: (item: Item, genre: string) => void;
   onRemove: (item: Item, genre: string) => void;
   onDismiss: (item: Item, genre: string, direction: "add" | "remove") => void;
+  collectionEdits: Edits;
+  collections: PlexCollection[];
+  stagedCreates: string[];
+  onCollAdd: (item: Item, title: string) => void;
+  onCollRemove: (item: Item, title: string) => void;
   onClose: () => void;
 }
 
@@ -25,19 +30,43 @@ export function TitleEditor({
   onAdd,
   onRemove,
   onDismiss,
+  collectionEdits,
+  collections,
+  stagedCreates,
+  onCollAdd,
+  onCollRemove,
   onClose,
 }: Props) {
   const [newGenre, setNewGenre] = useState("");
+  const [newCollection, setNewCollection] = useState("");
   const d = edits.get(item.ratingKey);
   const pendingAdds = [...(d?.add ?? [])];
   const current = new Set([...item.genres, ...pendingAdds]);
   const suggestions = allGenres.filter((g) => !current.has(g));
+
+  const cd = collectionEdits.get(item.ratingKey);
+  const collPendingAdds = [...(cd?.add ?? [])];
+  const currentColls = new Set([...(item.collections ?? []), ...collPendingAdds]);
+  const smartCollTitles = new Set(collections.filter((c) => c.smart).map((c) => c.title));
+  const suggestionColls = Array.from(
+    new Set([
+      ...collections.filter((c) => !c.smart).map((c) => c.title),
+      ...stagedCreates,
+    ]),
+  ).filter((c) => !currentColls.has(c));
 
   function submitAdd() {
     const g = newGenre.trim();
     if (!g || current.has(g)) return;
     onAdd(item, g);
     setNewGenre("");
+  }
+
+  function submitCollAdd() {
+    const c = newCollection.trim();
+    if (!c || currentColls.has(c)) return;
+    onCollAdd(item, c);
+    setNewCollection("");
   }
 
   return (
@@ -87,6 +116,50 @@ export function TitleEditor({
             ))}
           </datalist>
           <button className="primary" onClick={submitAdd} disabled={!newGenre.trim()}>
+            Add
+          </button>
+        </div>
+        <h3>Collections</h3>
+        <div className="chips">
+          {(item.collections ?? []).map((c) =>
+            cd?.remove.has(c) ? (
+              <span key={c} className="chip removed">
+                {c}
+                <button onClick={() => onCollAdd(item, c)}>undo</button>
+              </span>
+            ) : smartCollTitles.has(c) ? (
+              <span key={c} className="chip">
+                {c}
+              </span>
+            ) : (
+              <span key={c} className="chip">
+                {c}
+                <button onClick={() => onCollRemove(item, c)}>×</button>
+              </span>
+            ),
+          )}
+          {collPendingAdds.map((c) => (
+            <span key={c} className="chip added">
+              {c}
+              <button onClick={() => onCollRemove(item, c)}>×</button>
+            </span>
+          ))}
+          {currentColls.size === 0 && <span className="muted">No collections</span>}
+        </div>
+        <div className="add-genre">
+          <input
+            list="collection-options"
+            placeholder="Add collection (existing or new)…"
+            value={newCollection}
+            onChange={(e) => setNewCollection(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submitCollAdd()}
+          />
+          <datalist id="collection-options">
+            {suggestionColls.map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </datalist>
+          <button className="primary" onClick={submitCollAdd} disabled={!newCollection.trim()}>
             Add
           </button>
         </div>

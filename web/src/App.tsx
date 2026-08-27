@@ -22,8 +22,23 @@ import {
   queueRemove,
   toPayload,
 } from "./state/edits";
+import {
+  buildCollectionChannels,
+  CollectionChannel,
+  collectionEditCount,
+  CollectionOps,
+  collectionPayload,
+  deleteStagedCreate,
+  emptyOps,
+  stageCreate,
+  stageDelete,
+  stageRename,
+  stageSummary,
+  unstageDelete,
+} from "./state/collections";
 import { countFor, visibleFor } from "./state/suggestions";
 import { ServerPicker, SignIn } from "./views/Auth";
+import Collections from "./views/Collections";
 import { EditsTray } from "./views/EditsTray";
 import { Lineup } from "./views/Lineup";
 import { ReviewQueue } from "./views/ReviewQueue";
@@ -43,10 +58,14 @@ export default function App() {
   const [library, setLibrary] = useState<Library | null>(null);
   const [libraryMissing, setLibraryMissing] = useState(false);
   const [edits, setEdits] = useState<Edits>(emptyEdits());
+  const [collectionEdits, setCollectionEdits] = useState<Edits>(emptyEdits());
+  const [collectionOps, setCollectionOps] = useState<CollectionOps>(emptyOps());
   const [extraChannels, setExtraChannels] = useState<string[]>([]);
   const [selected, setSelected] = useState<Item | null>(null);
 
-  const [view, setView] = useState<"lineup" | "review">("lineup");
+  const [view, setView] = useState<"lineup" | "collections" | "review">("lineup");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   const [suggestions, setSuggestions] = useState<Record<string, Suggestion>>({});
   const [dismissed, setDismissed] = useState<Dismissed>({});
   const [evidenceCount, setEvidenceCount] = useState(0);
@@ -87,6 +106,17 @@ export default function App() {
       window.clearInterval(evPollRef.current);
     };
   }, [loadStatus, loadEvidence]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [menuOpen]);
 
   const authed = status?.authenticated ?? false;
   const sections = offline ? OFFLINE_SECTIONS : status?.sections ?? null;
@@ -170,24 +200,31 @@ export default function App() {
   }
 
   function confirmDiscard(): boolean {
-    const n = editCount(edits);
+    const n = totalEditCount;
     if (n === 0) return true;
     return window.confirm(`Discard ${n} pending change${n === 1 ? "" : "s"}?`);
+  }
+
+  /** Drop every staged change, genre and collection alike. */
+  function clearEdits() {
+    setEdits(emptyEdits());
+    setCollectionEdits(emptyEdits());
+    setCollectionOps(emptyOps());
   }
 
   function switchKind(k: Kind) {
     if (k === kind || saving) return;
     if (!confirmDiscard()) return;
-    setEdits(emptyEdits());
+    clearEdits();
     setExtraChannels([]);
     setSelected(null);
     setKind(k);
   }
 
   const onAdd = (item: Item, genre: string) =>
-    setEdits((e) => queueAdd(e, item, genre));
+    setEdits((e) => queueAdd(e, item, genre, item.genres));
   const onRemove = (item: Item, genre: string) =>
-    setEdits((e) => queueRemove(e, item, genre));
+    setEdits((e) => queueRemove(e, item, genre, item.genres));
 
   function newChannel() {
     const g = window.prompt("New channel (genre) name:")?.trim();
@@ -195,18 +232,114 @@ export default function App() {
     setExtraChannels((cs) => (cs.includes(g) ? cs : [...cs, g].sort()));
   }
 
+  // ---- collections. Every rule lives in state/collections.ts; these only
+  // hand it the current state and route what comes back.
+
+  const onCollAdd = (item: Item, title: string) =>
+    setCollectionEdits((e) => queueAdd(e, item, title, item.collections ?? []));
+  const onCollRemove = (item: Item, title: string) =>
+    setCollectionEdits((e) =>
+      queueRemove(e, item, title, item.collections ?? []),
+    );
+
+  function newCollection() {
+    const name = window.prompt("New collection name:");
+    if (name === null) return;
+    const next = stageCreate(collectionOps, name, collections);
+    if (typeof next === "string") setBanner(next);
+    else setCollectionOps(next);
+  }
+
+  function onCollRename(ch: CollectionChannel) {
+    const title = window.prompt("Rename collection:", ch.displayName);
+    if (title === null) return;
+    const r = stageRename(
+      collectionOps,
+      collectionEdits,
+      ch.meta ? { ratingKey: ch.meta.ratingKey } : { createTitle: ch.name },
+      title,
+      collections,
+    );
+    if (r.error) {
+      setBanner(r.error);
+      return;
+    }
+    if (r.ops) setCollectionOps(r.ops);
+    if (r.edits) setCollectionEdits(r.edits);
+  }
+
+  function onCollSummary(ch: CollectionChannel, text: string) {
+    const meta = ch.meta;
+    if (!meta) return;
+    setCollectionOps((o) => stageSummary(o, meta, text));
+  }
+
+  function onCollDelete(ch: CollectionChannel) {
+    const r = ch.isNew
+      ? deleteStagedCreate(collectionOps, collectionEdits, ch.name)
+      : ch.meta
+        ? stageDelete(collectionOps, collectionEdits, ch.meta)
+        : null;
+    if (!r) return;
+    setCollectionOps(r.ops);
+    setCollectionEdits(r.edits);
+  }
+
+  function onCollUndelete(ch: CollectionChannel) {
+    const meta = ch.meta;
+    if (!meta) return;
+    setCollectionOps((o) => unstageDelete(o, meta.ratingKey));
+  }
+
+  /**
+   * Undo one staged op from the tray. Creates and deletes go back through
+   * state/collections.ts because other state hangs off them (a create owns its
+   * membership adds; a delete already dropped everything it shadowed). Renames
+   * and summaries are coupled to nothing, so dropping the map entry is the
+   * whole undo.
+   */
+  function onUndoOp(
+    kind: "create" | "rename" | "summary" | "delete",
+    key: string,
+  ) {
+    if (kind === "create") {
+      const r = deleteStagedCreate(collectionOps, collectionEdits, key);
+      setCollectionOps(r.ops);
+      setCollectionEdits(r.edits);
+      return;
+    }
+    if (kind === "delete") {
+      setCollectionOps((o) => unstageDelete(o, key));
+      return;
+    }
+    setCollectionOps((o) => {
+      const next = new Map(kind === "rename" ? o.rename : o.summary);
+      next.delete(key);
+      return kind === "rename"
+        ? { ...o, rename: next }
+        : { ...o, summary: next };
+    });
+  }
+
   async function save() {
-    if (!section || saving) return;
+    if (!section || saving || totalEditCount === 0) return;
     setSaving(true);
     setBanner(null);
     try {
+      const extra = collectionPayload(
+        collectionEdits,
+        collectionOps,
+        library?.items ?? [],
+        library?.collections ?? [],
+      );
       const { results, ok } = await api.apply(
         section.id,
         section.kind,
         toPayload(edits, library?.items ?? []),
+        extra,
       );
       if (!ok) setApplyResults(results);
-      setEdits(emptyEdits());
+      clearEdits();
       setExtraChannels([]);
       setSelected(null);
       await startRefresh(() => {
@@ -221,11 +354,21 @@ export default function App() {
 
   const items = library?.items ?? [];
   const channels = useMemo(
-    () => buildChannels(items, edits, extraChannels),
+    () => buildChannels(items, edits, extraChannels, (i) => i.genres),
     [items, edits, extraChannels],
   );
+  const collections = useMemo(() => library?.collections ?? [], [library]);
+  const collectionChannels = useMemo(
+    () =>
+      buildCollectionChannels(items, collections, collectionEdits, collectionOps),
+    [items, collections, collectionEdits, collectionOps],
+  );
+  const totalEditCount = useMemo(
+    () => editCount(edits) + collectionEditCount(collectionEdits, collectionOps),
+    [edits, collectionEdits, collectionOps],
+  );
   const allGenres = useMemo(
-    () => channels.map((c) => c.genre),
+    () => channels.map((c) => c.name),
     [channels],
   );
   const reviewCount = useMemo(
@@ -274,86 +417,127 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <h1 className="logo">
-          Plex<span>Tags</span>
-        </h1>
-        <nav className="kind-toggle">
-          {(["movie", "show"] as Kind[]).map((k) => (
+        <div className="topbar-row topbar-row-1">
+          <h1 className="logo">
+            Plex<span>Tags</span>
+          </h1>
+          <nav className="kind-toggle">
+            {(["movie", "show"] as Kind[]).map((k) => (
+              <button
+                key={k}
+                className={k === kind ? "active" : ""}
+                onClick={() => switchKind(k)}
+              >
+                {k === "movie" ? "Movies" : "TV Shows"}
+              </button>
+            ))}
+          </nav>
+          <div className="spacer" />
+          {evJob && (
+            <span className="pulse refresh-progress">
+              {evJob.note ?? "Working"}… {evJob.total ? `${evJob.done}/${evJob.total}` : ""}
+            </span>
+          )}
+          {job && (
+            <span className="pulse refresh-progress">
+              Downloading… {job.done}/{job.total || "?"}
+            </span>
+          )}
+          <div className="menu-wrap" ref={menuRef}>
             <button
-              key={k}
-              className={k === kind ? "active" : ""}
-              onClick={() => switchKind(k)}
+              className="menu-trigger"
+              onClick={() => setMenuOpen((o) => !o)}
+              aria-label="More actions"
             >
-              {k === "movie" ? "Movies" : "TV Shows"}
+              ⋯
             </button>
-          ))}
-        </nav>
-        <nav className="kind-toggle">
+            {menuOpen && (
+              <div className="menu">
+                <button
+                  onClick={() => {
+                    if (!confirmDiscard()) return;
+                    clearEdits();
+                    startRefresh();
+                    setMenuOpen(false);
+                  }}
+                  disabled={offline || saving || !section || !!job}
+                  title={offline ? "Sign in to download from Plex" : "Re-download this library"}
+                >
+                  ⟳ Refresh library
+                </button>
+                <button
+                  onClick={() => {
+                    startEvidenceRefresh();
+                    setMenuOpen(false);
+                  }}
+                  disabled={offline || saving || !library || !!evJob}
+                  title={
+                    evidenceCount
+                      ? `Re-check Wikidata and Wikipedia (${evidenceCount} titles cached)`
+                      : "Download genre data from Wikidata and Wikipedia"
+                  }
+                >
+                  ⟳ Refresh evidence
+                </button>
+                {offline ? (
+                  <button
+                    className="link"
+                    onClick={() => {
+                      setOffline(false);
+                      loadStatus();
+                      setMenuOpen(false);
+                    }}
+                  >
+                    Sign in
+                  </button>
+                ) : (
+                  <button
+                    className="link"
+                    onClick={async () => {
+                      if (!confirmDiscard()) return;
+                      await api.logout();
+                      setOffline(false);
+                      clearEdits();
+                      loadStatus();
+                      setMenuOpen(false);
+                    }}
+                  >
+                    Sign out
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="topbar-row topbar-row-2">
+          <nav className="kind-toggle">
+            <button
+              className={view === "lineup" ? "active" : ""}
+              onClick={() => setView("lineup")}
+            >
+              Genres
+            </button>
+            <button
+              className={view === "collections" ? "active" : ""}
+              onClick={() => setView("collections")}
+            >
+              Collections
+            </button>
+            <button
+              className={view === "review" ? "active" : ""}
+              onClick={() => setView("review")}
+            >
+              Review{reviewCount > 0 ? ` (${reviewCount})` : ""}
+            </button>
+          </nav>
+          <div className="spacer" />
           <button
-            className={view === "lineup" ? "active" : ""}
-            onClick={() => setView("lineup")}
+            onClick={view === "collections" ? newCollection : newChannel}
+            disabled={!library || view === "review"}
           >
-            Lineup
+            {view === "collections" ? "+ New collection" : "+ New channel"}
           </button>
-          <button
-            className={view === "review" ? "active" : ""}
-            onClick={() => setView("review")}
-          >
-            Review{reviewCount > 0 ? ` (${reviewCount})` : ""}
-          </button>
-        </nav>
-        <div className="spacer" />
-        <button onClick={newChannel} disabled={!library || view !== "lineup"}>
-          + New channel
-        </button>
-        {evJob ? (
-          <span className="pulse refresh-progress">
-            {evJob.note ?? "Working"}… {evJob.total ? `${evJob.done}/${evJob.total}` : ""}
-          </span>
-        ) : (
-          <button
-            onClick={startEvidenceRefresh}
-            disabled={offline || saving || !library}
-            title={
-              evidenceCount
-                ? `Re-check Wikidata and Wikipedia (${evidenceCount} titles cached)`
-                : "Download genre data from Wikidata and Wikipedia"
-            }
-          >
-            ⟳ Wikipedia
-          </button>
-        )}
-        {job ? (
-          <span className="pulse refresh-progress">
-            Downloading… {job.done}/{job.total || "?"}
-          </span>
-        ) : (
-          <button
-            onClick={() => confirmDiscard() && (setEdits(emptyEdits()), startRefresh())}
-            disabled={offline || saving || !section}
-            title={offline ? "Sign in to download from Plex" : "Re-download this library"}
-          >
-            ⟳ Refresh
-          </button>
-        )}
-        {offline ? (
-          <button className="link" onClick={() => { setOffline(false); loadStatus(); }}>
-            Sign in
-          </button>
-        ) : (
-          <button
-            className="link"
-            onClick={async () => {
-              if (!confirmDiscard()) return;
-              await api.logout();
-              setOffline(false);
-              setEdits(emptyEdits());
-              loadStatus();
-            }}
-          >
-            Sign out
-          </button>
-        )}
+        </div>
       </header>
 
       {banner && (
@@ -405,6 +589,20 @@ export default function App() {
         />
       )}
 
+      {library && view === "collections" && (
+        <Collections
+          channels={collectionChannels}
+          items={items}
+          onAdd={onCollAdd}
+          onRemove={onCollRemove}
+          onRename={onCollRename}
+          onSummary={onCollSummary}
+          onDelete={onCollDelete}
+          onUndelete={onCollUndelete}
+          onOpenTitle={setSelected}
+        />
+      )}
+
       {selected && (
         <TitleEditor
           item={selected}
@@ -420,18 +618,29 @@ export default function App() {
           onAdd={onAdd}
           onRemove={onRemove}
           onDismiss={onDismiss}
+          collectionEdits={collectionEdits}
+          collections={collections}
+          stagedCreates={collectionOps.create}
+          onCollAdd={onCollAdd}
+          onCollRemove={onCollRemove}
           onClose={() => setSelected(null)}
         />
       )}
 
       <EditsTray
         edits={edits}
+        collectionEdits={collectionEdits}
+        ops={collectionOps}
+        collections={collections}
         items={items}
         saving={saving}
         canSave={!offline}
         onAdd={onAdd}
         onRemove={onRemove}
-        onDiscardAll={() => confirmDiscard() && setEdits(emptyEdits())}
+        onCollAdd={onCollAdd}
+        onCollRemove={onCollRemove}
+        onUndoOp={onUndoOp}
+        onDiscardAll={() => confirmDiscard() && clearEdits()}
         onSave={save}
       />
 

@@ -129,17 +129,66 @@ input:focus {
 
 .topbar {
   display: flex;
-  align-items: center;
-  gap: 14px;
-  height: 64px; /* fixed: channel headers stick at this offset */
+  flex-direction: column;
+  height: 100px; /* fixed: two rows, 52px + 48px — channel headers stick at this offset */
   position: sticky;
   top: 0;
   background: var(--bg);
   z-index: 5;
   border-bottom: 1px solid var(--border);
 }
+.topbar-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 4px;
+}
+.topbar-row-1 {
+  height: 52px;
+}
+.topbar-row-2 {
+  height: 48px;
+  border-top: 1px solid var(--border);
+}
 .topbar .spacer {
   flex: 1;
+}
+
+.menu-wrap {
+  position: relative;
+}
+.menu-trigger {
+  font-size: 18px;
+  line-height: 1;
+  padding: 6px 10px;
+}
+.menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 10;
+  margin-top: 4px;
+  min-width: 220px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+}
+.menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 8px 12px;
+}
+.menu button:hover:not(:disabled) {
+  background: var(--panel-2);
+  color: var(--gold);
 }
 
 .kind-toggle {
@@ -206,7 +255,7 @@ input:focus {
   cursor: pointer;
   user-select: none;
   position: sticky;
-  top: 64px; /* pinned just below the fixed-height topbar */
+  top: 100px; /* pinned just below the fixed-height topbar */
   z-index: 3;
   background: var(--panel);
   border-radius: 9px 9px 0 0;
@@ -442,6 +491,17 @@ input:focus {
   cursor: pointer;
   padding: 2px 10px;
 }
+/* Collection membership, so a mixed row reads at a glance. */
+.tray-row .chip.coll {
+  border-style: dashed;
+}
+.tray-row.op {
+  font-size: 13px;
+  color: var(--muted);
+}
+.tray-row.op .warn {
+  color: var(--gold);
+}
 .tray-actions {
   display: flex;
   align-items: center;
@@ -580,3 +640,59 @@ input:focus {
 .review-card > header .title:hover { color: var(--gold); }
 .review-card > header .year { color: var(--muted); font-size: 13px; }
 .review-card .suggestions { margin-top: 12px; padding-top: 10px; }
+
+/* ---------------------------------------------------------------- collections */
+
+.badge.smart {
+  background: transparent;
+  border: 1px solid var(--muted);
+  color: var(--muted);
+  border-radius: 9px;
+  padding: 0 7px;
+  font-size: 11px;
+}
+
+.channel.deleted header {
+  color: var(--muted);
+  cursor: default;
+}
+.channel.deleted header h2 {
+  text-decoration: line-through;
+}
+
+.summary {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.summary:hover {
+  color: var(--text);
+}
+.summary.editing {
+  cursor: default;
+  padding: 0;
+  background: none;
+}
+.summary.editing textarea {
+  width: 100%;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  resize: vertical;
+}
+.summary.editing textarea:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+.summary-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}

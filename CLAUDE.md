@@ -9,6 +9,11 @@ A local-only web app for bulk-editing Plex genre tags, viewed as a "channel
 lineup" (genre = channel, titles = channel members). FastAPI backend + React/Vite
 frontend, plus `plex_genres.py`, the stdlib-only CLI it grew out of.
 
+The app also manages Plex collections on its own screen. It can edit
+membership, create, rename, re-summarize, and delete collections. All
+collection work uses the same staged model as genres: nothing touches Plex
+until Save.
+
 ## Running
 
 ```bash
@@ -63,11 +68,19 @@ Browser (React) --/api--> FastAPI (server/) --HTTP--> Plex Media Server
   reachability testing, parallel library fetch, genre edits.
 - `server/store.py` — JSON files in `data/` (gitignored). `config.json` holds the
   generated `clientId`, the account `plexToken`, and the chosen server. Library
-  caches are `library_<sectionId>.json`.
+  caches are `library_<sectionId>.json`. Each cache also holds the section's
+  collection metadata under a `collections` key, and each item carries its
+  collection tags — one refresh snapshots both, so they cannot drift.
 - `web/src/state/edits.ts` — the interesting frontend logic. Edits are a
   `Map<ratingKey, {add, remove}>` treated as immutable, and `buildChannels()`
-  overlays pending edits onto the library to produce the genre-grouped view with
-  `kept` / `added` / `removed` statuses. Nothing is written to Plex until Save.
+  overlays pending edits onto the library to produce the tag-grouped view with
+  `kept` / `added` / `removed` statuses. The module is generic over the tag
+  type: callers pass the item's current tag list, so the same machinery serves
+  genres and collection membership. Nothing is written to Plex until Save.
+- `web/src/state/collections.ts` — the judgement layer for staged collection
+  operations (create, rename, summary, delete). Every interaction rule lives
+  here, never in components. Read its module docstring before you change how
+  collections are staged.
 - `web/src/App.tsx` — all screen routing and top-level state; the `views/` files
   are presentational.
 - `server/evidence.py` — genre evidence from Wikidata/Wikipedia, cached in
@@ -82,16 +95,17 @@ Browser (React) --/api--> FastAPI (server/) --HTTP--> Plex Media Server
 
 Violating either of these produces silent, hard-to-spot data bugs.
 
-1. **The bulk listing truncates genres.** `/library/sections/{id}/all` returns only
-   the first few `Genre` tags per item. Complete genre lists require a per-item
-   `GET /library/metadata/{ratingKey}`. Both `server/plex.py:fetch_items` and
-   `plex_genres.py:fetch_items` do this and say so in comments. Never "optimize"
-   the refresh by trusting the bulk response.
+1. **The bulk listing truncates tags.** `/library/sections/{id}/all` returns only
+   the first few `Genre` (and `Collection`) tags per item. Complete lists require
+   a per-item `GET /library/metadata/{ratingKey}`. Both `server/plex.py:fetch_items`
+   and `plex_genres.py:fetch_items` do this and say so in comments. Never
+   "optimize" the refresh by trusting the bulk response.
 
-2. **Genre removals must be one PUT each.** `genre[].tag.tag-` honors exactly one
+2. **Tag removals must be one PUT each.** `genre[].tag.tag-` honors exactly one
    value per request; batching removals silently drops all but one. Additions can
-   be batched as `genre[0].tag.tag`, `genre[1].tag.tag`, … Both codepaths encode
-   this.
+   be batched as `genre[0].tag.tag`, `genre[1].tag.tag`, … The same rule applies
+   to `collection[].tag.tag-`. `server/plex.py:_apply_tag_edits` encodes this for
+   both tag types; `plex_genres.py` encodes it for genres.
 
 3. **Store evidence, derive suggestions.** `data/evidence.json` holds what the
    outside sources *say*, never "remove Crime from X". Suggestions are recomputed
@@ -107,9 +121,21 @@ Violating either of these produces silent, hard-to-spot data bugs.
    `study/compare.py` scores itself against `corrections.json` and should stay at
    **9/10**; a drop means a guard broke.
 
+5. **Collection operations have a fixed apply order.** The apply route runs
+   deletes first, then genre edits, then collection membership, then renames and
+   summaries. Deletes go first so that "delete X, recreate X" tags members into
+   a fresh collection. Renames go last so that membership tags still name the
+   titles Plex knows. Membership edits are always keyed by the current server
+   title, never a staged new name. A rename is one metadata PUT with `type=18`
+   on the section's `/all` endpoint — never untag-plus-retag, which loses the
+   poster and the sort order. Plex creates a collection implicitly on its first
+   member tag; there is no way to create an empty one, so staged creates with
+   no members are dropped at Save.
+
 Other things to preserve:
 
-- Every write sends `genre.locked=1` so Plex's agents don't undo the correction.
+- Every tag write sends `genre.locked=1` (or `collection.locked=1`) so Plex's
+  agents don't undo the correction.
 - After a successful apply the app re-downloads the library, so the UI reflects
   what actually stuck rather than what was optimistically queued.
 - TLS verification is disabled for the Plex server (`verify=False`, warnings
@@ -126,6 +152,9 @@ Other things to preserve:
 `server/plex.py` is a port of `plex_genres.py`. The CLI additionally supports
 `set` (replace the whole genre list); the web app only does add/remove. If you
 change how genres are written, check whether both files need the change.
+
+The CLI has no collections support, on purpose. Collections are web-app-only
+scope; the parity rule covers genre writes.
 
 `server/store.py` seeds an empty cache from the root `plex_movies.json` /
 `plex_shows.json` CLI exports so there's something to look at before the first

@@ -5,6 +5,17 @@ export interface Item {
   title: string;
   year: number | string | null;
   genres: string[];
+  /** Collections this item belongs to. Optional: stale or seeded caches predate this field. */
+  collections?: string[];
+}
+
+export interface PlexCollection {
+  ratingKey: string;
+  title: string;
+  summary: string;
+  childCount: number;
+  smart: boolean;
+  subtype?: string;
 }
 
 export interface Library {
@@ -13,6 +24,8 @@ export interface Library {
   seeded: boolean;
   savedAt: number;
   items: Item[];
+  /** Collections in this library. Optional: stale or seeded caches predate this field. */
+  collections?: PlexCollection[];
 }
 
 export interface Section {
@@ -96,6 +109,18 @@ export interface EditPayload {
   remove: string[];
 }
 
+export interface CollectionUpdatePayload {
+  ratingKey: string;
+  title: string;
+  newTitle?: string;
+  newSummary?: string;
+}
+
+export interface CollectionDeletePayload {
+  ratingKey: string;
+  title: string;
+}
+
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const r = await fetch(url, init);
   if (!r.ok) {
@@ -144,9 +169,18 @@ export const api = {
     req<Dismissed>("/api/dismissals", post({ ratingKey, genre, direction })),
   undismiss: (ratingKey: string) =>
     req<Dismissed>(`/api/dismissals/${ratingKey}`, { method: "DELETE" }),
-  apply: (sectionId: string, kind: Kind, edits: EditPayload[]) =>
+  apply: (
+    sectionId: string,
+    kind: Kind,
+    edits: EditPayload[],
+    extra?: {
+      collectionEdits?: EditPayload[];
+      collectionUpdates?: CollectionUpdatePayload[];
+      collectionDeletes?: CollectionDeletePayload[];
+    },
+  ) =>
     req<{ results: ApplyResult[]; ok: boolean }>(
       `/api/sections/${sectionId}/apply`,
-      post({ kind, edits }),
+      post({ kind, edits, ...extra }),
     ),
 };
