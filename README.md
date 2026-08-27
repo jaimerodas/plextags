@@ -1,35 +1,59 @@
 # PlexTags
 
-A local web app for cleaning up the **genre tags** and **collections** in your
-Plex library, presented as a TV-style *channel lineup*: each genre is a
-"channel", and every movie or show tagged with it is a title in that channel.
-You add and remove titles from channels, review the queued changes, then push
-them all to Plex in one go. The Collections tab gives the same workflow for
-Plex collections, plus create, rename, summary edits, and delete.
+A local web app that cleans up the **genre tags** and **collections** in a Plex
+library. It shows the library as a TV-style *channel lineup*: each genre is a
+channel, and every movie or show with that tag is a title in the channel. You
+edit the channels, review the queued changes, and push them all to Plex in one
+save.
 
-Everything runs on your own machine and talks directly to your Plex Media Server.
-Nothing is sent anywhere else.
+![The genre lineup, with the Musical channel open](docs/lineup.png)
+
+Everything runs on your own machine and talks directly to your Plex Media
+Server. Nothing is sent anywhere else.
 
 ## Why it exists
 
-Plex's metadata agents assign genres generously and inconsistently — *DuckTales*
-comes back tagged "Science Fiction" and "Action", *The Americans* picks up
-"Mystery", and so on. Trying to fix that one title at a time in the Plex UI is
-tedious because you can't see a genre as a group. This app inverts the view: you
-look at the "Mystery" channel, spot the titles that clearly don't belong, and pull
-them out.
+Plex's metadata agents assign genres generously and inconsistently. *DuckTales*
+comes back tagged "Science Fiction" and "Action", and *The Americans* picks up
+"Mystery". The Plex UI can only fix one title at a time, and it cannot show a
+genre as a group. PlexTags inverts the view: you open the "Mystery" channel,
+find the titles that do not belong, and pull them out.
 
-When PlexTags writes a change it also sets `genre.locked=1` on the item, so Plex's
-agents won't silently overwrite your correction on the next metadata refresh.
+When PlexTags writes a change, it also sets `genre.locked=1` on the item. Then
+the Plex agents do not overwrite your correction on the next metadata refresh.
 
-## Running it
+## Features
+
+- **Genre channels** — see every genre as a group, add and remove titles, or
+  create new genres.
+- **Collections** — the same workflow for Plex collections, plus create,
+  rename, summary edits, and delete.
+- **Staged edits** — every change queues in a tray. Nothing touches Plex until
+  you press Save, and one Save applies everything.
+- **Wikipedia suggestions** — compare your genres against Wikidata and
+  Wikipedia, and accept or dismiss each suggestion.
+- **Locked corrections** — each write locks the field, so Plex agents keep
+  your changes.
+- **Offline browsing** — read the cached library without a Plex sign-in.
+
+## Install
+
+You need `uv` and `npm`:
+
+```bash
+brew install uv node    # macOS; on Linux, install uv and Node.js your usual way
+git clone https://github.com/<you>/plextags.git
+cd plextags
+```
+
+## Run
 
 ```bash
 bin/dev
 ```
 
-That's it. The script installs any missing Python and npm dependencies, starts
-both servers with tagged output, and prints the URL to open. Ctrl-C stops
+The script installs the missing Python and npm dependencies, starts both
+servers with tagged output, and prints the URL to open. Ctrl-C stops
 everything.
 
 ```
@@ -38,36 +62,40 @@ bin/dev --api    backend only
 bin/dev --web    frontend only
 ```
 
-Requires `uv` and `npm` (`brew install uv node`).
-
-Under the hood it's two processes: the FastAPI backend on port **8998** and the
-Vite dev server on port **5173**. Vite proxies `/api` to the backend, so **open
-http://localhost:5173** — not 8998. The backend does not serve the frontend.
-If you'd rather run them by hand:
+Under the hood there are two processes: the FastAPI backend on port **8998**
+and the Vite dev server on port **5173**. Vite proxies `/api` to the backend,
+so **open http://localhost:5173** — not 8998. The backend does not serve the
+frontend. To run them by hand:
 
 ```bash
 uv run uvicorn server.main:app --port 8998   # terminal 1
 npm run dev --prefix web                      # terminal 2
 ```
 
-`.claude/launch.json` defines the same two processes for tooling that reads it.
+## First-time setup
 
-### First-time flow in the UI
+1. Open http://localhost:5173 and click **Sign in with Plex**. A plex.tv tab
+   opens for the PIN approval. There is no token to copy.
+2. Pick a server. The app lists the servers on your account and tests each
+   connection, with local connections first.
+3. Click **Download library**. The app pulls every movie (or show), with its
+   genres and collections, into a local cache. This is a per-item fetch, so it
+   takes a moment and shows progress.
 
-1. **Sign in with Plex** — opens a plex.tv tab for the PIN approval flow. No token
-   to copy and paste; the resulting token is stored in `data/config.json`.
-2. **Pick a server** — the app lists the Plex Media Servers on your account and
-   tests each connection URL for reachability, preferring local ones.
-3. **Download library** — pulls all movies (or shows) and their genres into a local
-   cache. This is a per-item fetch, so it takes a moment and shows progress.
-4. **Edit the lineup** — expand a channel, remove titles that don't belong, use
-   *+ New channel* to create a genre, or click a title to edit all of its genres at
-   once in a modal.
-5. **Sync** — the edits tray at the bottom shows everything queued. Saving writes
-   the changes to Plex and then automatically re-downloads the library so what you
-   see matches what actually stuck.
+## Usage
+
+### Genres
+
+Open a channel to see its titles. The × on a row queues a removal. The input
+at the bottom of a channel adds a title. **+ New channel** creates a genre.
+Click a title to edit all of its genres and collections in one modal.
+
+The tray at the bottom shows every queued change. **Save to Plex** writes them
+all, then re-downloads the library, so the app shows what actually stuck.
 
 ### Collections
+
+![The Collections tab, with one collection open](docs/collections.png)
 
 The **Collections** tab lists each collection in the section as a card. The
 cards work like genre channels, with more controls:
@@ -81,35 +109,42 @@ cards work like genre channels, with more controls:
 - The × button on a card stages a delete. The card stays visible with an undo
   until you save. CAUTION: A saved delete is permanent on Plex.
 
-Smart collections show a "smart" badge and are read-only. The edits tray shows
+Smart collections show a "smart" badge and are read-only. The tray shows
 collection changes with a ⊞ prefix, next to the genre changes, and one Save
 applies everything.
 
 ### Suggestions from Wikipedia
 
-Hit **⟳ Wikipedia** once (about 40 seconds for a few hundred titles) and PlexTags
-downloads what Wikidata and the English Wikipedia say about every title's genre.
-After that it's all local — no waiting when you open something.
+Click **Refresh evidence** in the ⋯ menu once. In about 40 seconds for a few
+hundred titles, PlexTags downloads what Wikidata and the English Wikipedia say
+about every title's genre. After that everything is local.
 
-Each title then shows suggested additions and removals, with the Wikipedia lead
-sentence next to them so you can judge rather than trust. **Accept** queues the
-change into the normal edits tray; **Dismiss** hides that suggestion for good.
-The **Review** tab walks you through every title with outstanding suggestions.
+Each title then shows suggested additions and removals, with the Wikipedia
+lead sentence next to them, so you can judge instead of trust. **Accept**
+queues the change into the normal tray. **Dismiss** hides that suggestion for
+good. The **Review** tab walks through every title with open suggestions.
 
-Suggestions are deliberately conservative. An addition needs both sources to
-agree. A removal needs both sources present, specific, and silent on the tag —
-and is never offered if it would leave a title with no genres at all, or for
-genres Wikidata simply doesn't record (it calls *Cars* "buddy, comedy,
-flashback" and never "family film", which doesn't make Family wrong).
+The suggestions are deliberately conservative. An addition needs both sources
+to agree. A removal needs both sources present, specific, and silent on the
+tag. A removal is never offered if it would leave a title with no genres, or
+for genres that Wikidata does not record (Wikidata calls *Cars* "buddy,
+comedy, flashback" and never "family film", which does not make Family wrong).
 
-There's also a **Browse cached data without signing in** link, which loads the
-local cache read-only (useful for poking around offline).
+## Privacy and data
+
+- The app talks to your Plex server and, for suggestions, to the public
+  Wikidata and Wikipedia APIs. It sends only IMDb ids and article titles to
+  those APIs — never your Plex token or account data.
+- Your Plex token and all caches stay in `data/`, which is gitignored.
+- TLS verification is off for the Plex server connection, because local
+  servers use plex.direct or self-signed certificates. This app is meant for
+  LAN use.
 
 ## The original CLI
 
-`plex_genres.py` is the standalone script the web app grew out of. It's
-stdlib-only — no dependencies, no venv — and still works. It's handy for a quick
-export or for scripted bulk edits.
+`plex_genres.py` is the standalone script the web app grew out of. It has zero
+dependencies — a bare `python3` runs it. It is useful for a quick export or a
+scripted bulk edit. It handles genres only, not collections.
 
 ```bash
 export PLEX_URL="http://192.168.1.50:32400"
@@ -124,13 +159,13 @@ python3 plex_genres.py apply --section 2 --kind show \
 python3 plex_genres.py apply --section 2 --kind show --file corrections.json
 ```
 
-Getting a token: sign in at app.plex.tv, open any movie → "..." → Get Info → View
-XML. The token is the `X-Plex-Token=` value in that URL.
+To get a token: sign in at app.plex.tv, open any movie → "..." → Get Info →
+View XML. The token is the `X-Plex-Token=` value in that URL.
 
 ### corrections.json format
 
-A list of objects, each keyed by `ratingKey`. Use `remove` and/or `add`, or `set`
-to replace the whole genre list:
+A list of objects, each keyed by `ratingKey`. Use `remove` and/or `add`, or
+`set` to replace the whole genre list:
 
 ```json
 [
@@ -140,17 +175,17 @@ to replace the whole genre list:
 ]
 ```
 
-The `corrections.json` in the repo is the real batch that was applied to the TV
-library — kept as a worked example.
+The `corrections.json` in the repo is a real, applied correction batch — kept
+as a worked example.
 
 ## What's in the repo
 
 ```
 bin/dev               dev launcher — installs deps, runs both servers
 plex_genres.py        standalone CLI (stdlib only) — the original tool
-corrections.json      example/applied correction batch for the CLI
+corrections.json      example correction batch for the CLI
 plex_movies.{csv,json}  CLI exports; the JSON also seeds the web app's cache
-plex_shows.{csv,json}   on first run, before you've hit Refresh
+plex_shows.{csv,json}   on first run, before the first Refresh
 
 server/               FastAPI backend
   main.py             HTTP routes; background refresh jobs
@@ -163,9 +198,11 @@ web/                  React + TypeScript + Vite frontend
   src/state/edits.ts  pending-edit model and the tag->channel grouping
   src/state/collections.ts  staged collection operations and their rules
   src/views/          Auth, Lineup, Collections, TitleEditor, EditsTray
+study/                offline audit of Plex genres vs Wikidata/Wikipedia
 
 data/                 gitignored: config.json (client id, Plex token, chosen
                       server) and library_<section>.json caches
+docs/                 screenshots for this README
 ```
 
 ## Two Plex API quirks worth knowing
