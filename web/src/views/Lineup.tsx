@@ -20,18 +20,25 @@ export function Lineup({
   onRemove,
   onOpenTitle,
 }: Props) {
+  // Split in JS, not CSS columns: the halves read alphabetically down each
+  // column, and CSS multicol breaks the sticky channel headers.
+  const mid = Math.ceil(channels.length / 2);
   return (
     <div className="lineup">
-      {channels.map((ch) => (
-        <ChannelCard
-          key={ch.name}
-          channel={ch}
-          items={items}
-          suggestionCounts={suggestionCounts}
-          onAdd={onAdd}
-          onRemove={onRemove}
-          onOpenTitle={onOpenTitle}
-        />
+      {[channels.slice(0, mid), channels.slice(mid)].map((col, i) => (
+        <div className="lineup-col" key={i}>
+          {col.map((ch) => (
+            <ChannelCard
+              key={ch.name}
+              channel={ch}
+              items={items}
+              suggestionCounts={suggestionCounts}
+              onAdd={onAdd}
+              onRemove={onRemove}
+              onOpenTitle={onOpenTitle}
+            />
+          ))}
+        </div>
       ))}
     </div>
   );
@@ -57,7 +64,9 @@ export function ChannelCard(props: {
     headerExtras,
     readOnly,
   } = props;
-  const [open, setOpen] = useState(true);
+  // Closed by default so the lineup scans like an index. An empty channel was
+  // just created, and the only thing to do with it is add a title — start open.
+  const [open, setOpen] = useState(channel.entries.length === 0);
   const activeCount = channel.entries.filter((e) => e.status !== "removed").length;
 
   return (

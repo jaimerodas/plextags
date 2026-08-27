@@ -41,21 +41,27 @@ export default function Collections({
     );
   }
 
+  // Same JS split as Lineup: alphabetical down each column, sticky headers kept.
+  const mid = Math.ceil(channels.length / 2);
   return (
     <div className="lineup">
-      {channels.map((ch) => (
-        <CollectionCard
-          key={ch.name}
-          channel={ch}
-          items={items}
-          onAdd={onAdd}
-          onRemove={onRemove}
-          onRename={onRename}
-          onSummary={onSummary}
-          onDelete={onDelete}
-          onUndelete={onUndelete}
-          onOpenTitle={onOpenTitle}
-        />
+      {[channels.slice(0, mid), channels.slice(mid)].map((col, i) => (
+        <div className="lineup-col" key={i}>
+          {col.map((ch) => (
+            <CollectionCard
+              key={ch.name}
+              channel={ch}
+              items={items}
+              onAdd={onAdd}
+              onRemove={onRemove}
+              onRename={onRename}
+              onSummary={onSummary}
+              onDelete={onDelete}
+              onUndelete={onUndelete}
+              onOpenTitle={onOpenTitle}
+            />
+          ))}
+        </div>
       ))}
     </div>
   );
@@ -83,7 +89,9 @@ function CollectionCard(props: {
     onUndelete,
     onOpenTitle,
   } = props;
-  const [open, setOpen] = useState(true);
+  // Closed by default, like the genre lineup. A card with no entries is a
+  // fresh staged create whose next act is adding a title — start it open.
+  const [open, setOpen] = useState(channel.entries.length === 0);
   const activeCount = channel.entries.filter((e) => e.status !== "removed").length;
 
   if (channel.deleted) {

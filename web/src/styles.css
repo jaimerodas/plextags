@@ -235,10 +235,28 @@ input:focus {
 /* ---- lineup ---- */
 
 .lineup {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  align-items: start; /* columns keep their own height, or sticky headers drift */
+  margin-top: 16px;
+}
+.lineup-col {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  margin-top: 16px;
+  min-width: 0;
+}
+/* On wide screens the lineup runs in two columns, and the app widens to give
+   each column comfortable room. The two views split their channel list in JS
+   (see Lineup.tsx) so the order reads down one column, then the next. */
+@media (min-width: 960px) {
+  .app {
+    max-width: 1400px;
+  }
+  .lineup {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 .channel {
