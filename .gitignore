@@ -1,4 +1,5 @@
 .venv/
+.node/
 __pycache__/
 node_modules/
 web/dist/

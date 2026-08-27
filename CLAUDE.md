@@ -21,8 +21,10 @@ bin/dev              # both servers; --api or --web for just one
 ```
 
 `bin/dev` installs missing deps, runs both servers in their own process groups
-with tagged output, and cleans both up on Ctrl-C. It is bash 3.2 compatible (the
-macOS system bash) — no `wait -n`, no associative arrays. It relies on `set -m`
+with tagged output, and cleans both up on Ctrl-C. When the system node is
+missing or older than 18, it bootstraps a pinned node into `.node/` (gitignored)
+with `uvx nodeenv`, so `uv` is the only real prerequisite. It is bash 3.2
+compatible (the macOS system bash) — no `wait -n`, no associative arrays. It relies on `set -m`
 so that `kill -- -$pid` reaps each server's whole child tree; don't remove that.
 
 Two signal-handling details there are load-bearing, and both fail silently:

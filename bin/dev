@@ -19,6 +19,7 @@ cd "$(dirname "$0")/.."
 
 API_PORT=8998   # must match the /api proxy target in web/vite.config.ts
 WEB_PORT=5173
+NODE_VERSION=24.20.0   # bootstrapped into .node/ when the system node is unusable
 
 if [ -t 1 ]; then
   BOLD=$'\033[1m'; DIM=$'\033[2m'; RESET=$'\033[0m'
@@ -63,13 +64,28 @@ if [ "$run_api" = 1 ]; then
   check_port "$API_PORT" backend
 fi
 
+# Vite 6 needs node 18+. An old node survives npm install and only fails once
+# vite starts, so the check happens here, not there.
+node_ok() {
+  local major
+  major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null)
+  [ "${major:-0}" -ge 18 ] 2>/dev/null
+}
+
 if [ "$run_web" = 1 ]; then
+  # Prefer the system node. When it is missing or too old, bootstrap a pinned
+  # node into .node/ (gitignored) with uv + nodeenv — the same no-thought model
+  # uv already gives Python, so uv stays the only real prerequisite.
+  if ! node_ok; then
+    if [ ! -x .node/bin/node ]; then
+      command -v uvx >/dev/null || die "uv not found. Install it: brew install uv"
+      say "no usable node found — installing node $NODE_VERSION into .node/ …"
+      uvx nodeenv --node "$NODE_VERSION" .node || die "node bootstrap failed"
+    fi
+    PATH="$PWD/.node/bin:$PATH"
+    node_ok || die "the node in .node/ does not work. Remove .node/ and run bin/dev again."
+  fi
   command -v npm >/dev/null || die "npm not found. Install node: brew install node"
-  # An old node passes the npm check, survives npm install, and only fails once
-  # vite starts. Vite 6 needs node 18+.
-  node_major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null)
-  [ "${node_major:-0}" -ge 18 ] 2>/dev/null \
-    || die "node ${node_major:-?} is too old for vite (needs 18+). Upgrade: brew upgrade node"
   check_port "$WEB_PORT" frontend
   # Reinstall when the lockfile is newer than the install marker.
   if [ ! -d web/node_modules ] || [ web/package-lock.json -nt web/node_modules ]; then

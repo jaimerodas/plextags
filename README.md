@@ -38,10 +38,11 @@ the Plex agents do not overwrite your correction on the next metadata refresh.
 
 ## Install
 
-You need `uv` and `npm`:
+You need `uv`. Node is optional: when the system node is missing or too
+old, `bin/dev` installs a local copy into `.node/`.
 
 ```bash
-brew install uv node    # macOS; on Linux, install uv and Node.js your usual way
+brew install uv    # macOS; on Linux, install uv your usual way
 git clone https://github.com/jaimerodas/plextags.git
 cd plextags
 ```

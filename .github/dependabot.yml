@@ -1,0 +1,18 @@
+# Weekly dependency bumps as pull requests, grouped so each ecosystem opens
+# one PR instead of many. Security fixes come through the same channel.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/web"
+    schedule:
+      interval: "weekly"
+    groups:
+      npm-dependencies:
+        patterns: ["*"]
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      python-dependencies:
+        patterns: ["*"]
