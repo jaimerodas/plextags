@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import type { Item } from "../api";
 import type { Channel, ChannelEntry } from "../state/edits";
 
@@ -24,7 +24,7 @@ export function Lineup({
     <div className="lineup">
       {channels.map((ch) => (
         <ChannelCard
-          key={ch.genre}
+          key={ch.name}
           channel={ch}
           items={items}
           suggestionCounts={suggestionCounts}
@@ -37,15 +37,26 @@ export function Lineup({
   );
 }
 
-function ChannelCard(props: {
+export function ChannelCard(props: {
   channel: Channel;
   items: Item[];
   suggestionCounts: Map<string, number>;
   onAdd: (item: Item, genre: string) => void;
   onRemove: (item: Item, genre: string) => void;
   onOpenTitle: (item: Item) => void;
+  headerExtras?: ReactNode;
+  readOnly?: boolean;
 }) {
-  const { channel, items, suggestionCounts, onAdd, onRemove, onOpenTitle } = props;
+  const {
+    channel,
+    items,
+    suggestionCounts,
+    onAdd,
+    onRemove,
+    onOpenTitle,
+    headerExtras,
+    readOnly,
+  } = props;
   const [open, setOpen] = useState(true);
   const activeCount = channel.entries.filter((e) => e.status !== "removed").length;
 
@@ -53,8 +64,9 @@ function ChannelCard(props: {
     <section className="channel">
       <header onClick={() => setOpen(!open)}>
         <span className={`chevron ${open ? "open" : ""}`}>▸</span>
-        <h2>{channel.genre}</h2>
+        <h2>{channel.name}</h2>
         <span className="count">{activeCount}</span>
+        {headerExtras}
       </header>
       {open && (
         <div className="channel-body">
@@ -62,34 +74,38 @@ function ChannelCard(props: {
             <EntryRow
               key={e.item.ratingKey}
               entry={e}
-              genre={channel.genre}
+              genre={channel.name}
               suggestionCount={suggestionCounts.get(e.item.ratingKey) ?? 0}
               onAdd={onAdd}
               onRemove={onRemove}
               onOpenTitle={onOpenTitle}
+              readOnly={readOnly}
             />
           ))}
-          <AddTitle
-            genre={channel.genre}
-            items={items}
-            existing={channel.entries}
-            onAdd={onAdd}
-          />
+          {!readOnly && (
+            <AddTitle
+              genre={channel.name}
+              items={items}
+              existing={channel.entries}
+              onAdd={onAdd}
+            />
+          )}
         </div>
       )}
     </section>
   );
 }
 
-function EntryRow(props: {
+export function EntryRow(props: {
   entry: ChannelEntry;
   genre: string;
   suggestionCount: number;
   onAdd: (item: Item, genre: string) => void;
   onRemove: (item: Item, genre: string) => void;
   onOpenTitle: (item: Item) => void;
+  readOnly?: boolean;
 }) {
-  const { entry, genre, suggestionCount, onAdd, onRemove, onOpenTitle } = props;
+  const { entry, genre, suggestionCount, onAdd, onRemove, onOpenTitle, readOnly } = props;
   const { item, status } = entry;
   return (
     <div className={`entry ${status}`}>
@@ -107,24 +123,25 @@ function EntryRow(props: {
           {suggestionCount}
         </button>
       )}
-      {status === "removed" ? (
-        <button className="action undo" onClick={() => onAdd(item, genre)}>
-          undo
-        </button>
-      ) : (
-        <button
-          className="action remove"
-          title={`Remove from ${genre}`}
-          onClick={() => onRemove(item, genre)}
-        >
-          ×
-        </button>
-      )}
+      {!readOnly &&
+        (status === "removed" ? (
+          <button className="action undo" onClick={() => onAdd(item, genre)}>
+            undo
+          </button>
+        ) : (
+          <button
+            className="action remove"
+            title={`Remove from ${genre}`}
+            onClick={() => onRemove(item, genre)}
+          >
+            ×
+          </button>
+        ))}
     </div>
   );
 }
 
-function AddTitle(props: {
+export function AddTitle(props: {
   genre: string;
   items: Item[];
   existing: ChannelEntry[];

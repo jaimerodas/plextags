@@ -5,7 +5,7 @@ export interface Delta {
   remove: Set<string>;
 }
 
-/** ratingKey -> pending genre changes. Treated as immutable. */
+/** ratingKey -> pending tag changes. Treated as immutable. */
 export type Edits = Map<string, Delta>;
 
 export const emptyEdits = (): Edits => new Map();
@@ -22,19 +22,37 @@ function cloneDelta(edits: Edits, key: string): Delta {
   return { add: new Set(d?.add), remove: new Set(d?.remove) };
 }
 
-/** Queue adding `genre` to `item` (or undo a pending removal of it). */
-export function queueAdd(edits: Edits, item: Item, genre: string): Edits {
+/**
+ * Queue adding `tag` to `item` (or undo a pending removal of it). `current` is
+ * the item's current tag list for whichever tag type is being edited (call
+ * sites pass `item.genres` today).
+ */
+export function queueAdd(
+  edits: Edits,
+  item: Item,
+  tag: string,
+  current: string[],
+): Edits {
   const d = cloneDelta(edits, item.ratingKey);
-  if (item.genres.includes(genre)) d.remove.delete(genre);
-  else d.add.add(genre);
+  if (current.includes(tag)) d.remove.delete(tag);
+  else d.add.add(tag);
   return withDelta(edits, item.ratingKey, d);
 }
 
-/** Queue removing `genre` from `item` (or undo a pending add of it). */
-export function queueRemove(edits: Edits, item: Item, genre: string): Edits {
+/**
+ * Queue removing `tag` from `item` (or undo a pending add of it). `current` is
+ * the item's current tag list for whichever tag type is being edited (call
+ * sites pass `item.genres` today).
+ */
+export function queueRemove(
+  edits: Edits,
+  item: Item,
+  tag: string,
+  current: string[],
+): Edits {
   const d = cloneDelta(edits, item.ratingKey);
-  if (item.genres.includes(genre)) d.remove.add(genre);
-  else d.add.delete(genre);
+  if (current.includes(tag)) d.remove.add(tag);
+  else d.add.delete(tag);
   return withDelta(edits, item.ratingKey, d);
 }
 
@@ -52,15 +70,16 @@ export interface ChannelEntry {
 }
 
 export interface Channel {
-  genre: string;
+  name: string;
   entries: ChannelEntry[];
 }
 
-/** Genre-grouped view of the library with pending edits overlaid. */
+/** Tag-grouped view of the library with pending edits overlaid. */
 export function buildChannels(
   items: Item[],
   edits: Edits,
   extraChannels: string[],
+  getTags: (item: Item) => string[],
 ): Channel[] {
   const byGenre = new Map<string, ChannelEntry[]>();
   const bucket = (g: string) => {
@@ -70,7 +89,7 @@ export function buildChannels(
   for (const g of extraChannels) bucket(g);
   for (const item of items) {
     const d = edits.get(item.ratingKey);
-    for (const g of item.genres) {
+    for (const g of getTags(item)) {
       bucket(g).push({ item, status: d?.remove.has(g) ? "removed" : "kept" });
     }
     for (const g of d?.add ?? []) {
@@ -78,15 +97,19 @@ export function buildChannels(
     }
   }
   return [...byGenre.entries()]
-    .map(([genre, entries]) => ({ genre, entries }))
-    .sort((a, b) => a.genre.localeCompare(b.genre));
+    .map(([name, entries]) => ({ name, entries }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Item's genre list with pending edits applied (for the title editor). */
-export function effectiveGenres(item: Item, edits: Edits): string[] {
+/** Item's tag list with pending edits applied (for the title editor). */
+export function effectiveTags(
+  item: Item,
+  edits: Edits,
+  current: string[],
+): string[] {
   const d = edits.get(item.ratingKey);
-  if (!d) return item.genres;
-  return [...item.genres.filter((g) => !d.remove.has(g)), ...d.add];
+  if (!d) return current;
+  return [...current.filter((g) => !d.remove.has(g)), ...d.add];
 }
 
 export function editCount(edits: Edits): number {
